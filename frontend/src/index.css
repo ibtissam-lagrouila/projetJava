@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #D3B996;
+    color: #241814;
+    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+  }
+
+  h1, h2, h3, .font-serif {
+    font-family: 'Newsreader', 'Playfair Display', Georgia, serif;
+  }
+}
+
+/* Custom Scrollbar for Fitwell editorial aesthetic */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #D3B996;
+}
+::-webkit-scrollbar-thumb {
+  background: #B99F7D;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9F8666;
+}
+

@@ -1,0 +1,129 @@
+# Fitwell — Git Ignore Configuration
+
+# ==========================================
+# 1. Environment Variables, Secrets & Keys
+# ==========================================
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# ==========================================
+# 2. Java, Maven & Backend Build Artifacts
+# ==========================================
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+
+# ==========================================
+# 3. Node, Vite & Frontend Build Artifacts
+# ==========================================
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+dist-ssr/
+**/dist-ssr/
+.vite/
+**/.vite/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# ==========================================
+# 4. Testing, Code Coverage & Reports
+# ==========================================
+coverage/
+**/coverage/
+.nyc_output/
+*.lcov
+surefire-reports/
+**/surefire-reports/
+
+# ==========================================
+# 5. User Uploads, Storage & Temporary Files
+# ==========================================
+uploads/
+**/uploads/
+backend_uploads/
+storage/
+**/storage/
+temp/
+**/temp/
+tmp/
+**/tmp/
+*.pdf
+!docs/**/*.pdf
+
+# ==========================================
+# 6. Database & Docker Local Mounts
+# ==========================================
+postgres_data/
+**/postgres_data/
+.docker/
+*.db
+*.sqlite
+*.sqlite3
+
+# ==========================================
+# 7. IDEs & Operating System Files
+# ==========================================
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio Code
+.vscode/
+
+# Eclipse
+.project
+.classpath
+.settings/
+bin/
+
+# NetBeans
+nbproject/
+*.nbattrs
+
+# Visual Studio / Windows / macOS
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ==========================================
+# 8. Logs
+# ==========================================
+logs/
+**/logs/
+*.log
