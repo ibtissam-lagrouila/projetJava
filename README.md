@@ -247,5 +247,134 @@ L'écran d'onboarding étudiant reproduit fidèlement la maquette de référence
   - Les informations personnelles identifiables (email, téléphone) sont nettoyées avant tout traitement.
   - Les journaux d'audit (`AuditLog`) consignent l'action `STUDENT_CV_DRAFT_UPLOADED` sans jamais sauvegarder ni journaliser le contenu textuel ou brut du CV.
 
+---
+
+## 7. Connecteur CareerPageSource (Phase C — Sourcing d'offres)
+
+Le connecteur `CareerPageSource` permet à Fitwell d'agréger des offres de stages directement depuis les pages carrières d'entreprises et les portails universitaires préalablement approuvés et audités par l'ADMIN.
+
+### 1. Interdictions Strictes & Éthique
+- 🚫 **INTERDIT** : Collecter Google ou ses pages de résultats de recherche.
+- 🚫 **INTERDIT** : Collecter LinkedIn.
+- 🚫 **INTERDIT** : Collecter tout site dont le `robots.txt` ou les Conditions Générales d'Utilisation (CGU) l'interdisent.
+- 🚫 **INTERDIT** : Contourner un écran de connexion, un paywall ou un défi CAPTCHA.
+
+### 2. Workflow d'Ajout d'une Source (Page Sourcing Admin)
+1. **Champs obligatoires** :
+   - Nom de la source (ex: *OCP Group Careers*, *Univ Hassan II Stages*).
+   - URL exacte de la page des offres / stages.
+   - URL des CGU / Mentions Légales du site tiers.
+   - Sélecteurs CSS optionnels (format JSON).
+2. **Contrôle 1 — "Check robots.txt"** :
+   - Télécharge le fichier `robots.txt` du domaine via `RobotsTxtService`.
+   - Évalue la compatibilité avec notre User-Agent (`FitwellBot/1.0 (+https://fitwell.ma/bot; bot@fitwell.ma)`).
+   - Analyse les directives `Disallow`, `Allow` et `Crawl-delay`.
+3. **Contrôle 2 — "Test on a sample"** :
+   - Extrait au plus **5 offres** sur un échantillon de test sans **aucun** enregistrement en base de données.
+   - Fournit un aperçu immédiat des champs trouvés (titre, employeur, lieu, niveau d'extraction, score de confiance).
+4. **Activation explicite par l'Admin** :
+   - La case à cocher **"allowed"** n'est activable qu'après réussite des deux contrôles.
+   - **Règle absolue** : Une source non autorisée (`is_allowed = false`) n'est **jamais** appelée ni crawlée.
+
+### 3. Hiérarchie d'Extraction (Ordre de Préférence)
+1. **Niveau 1 — JSON-LD `schema.org/JobPosting`** : Analyse des balises `<script type="application/ld+json">` (titre, employeur, lieu, date de publication, court extrait, URL canonique directe). Score de confiance : 95%.
+2. **Niveau 2 — Flux RSS / Sitemap XML** : Analyse des balises `<item>` / `<entry>` ou sitemaps. Score de confiance : 90%.
+3. **Niveau 3 — Sélecteurs CSS configurables (Jsoup)** : Application de règles CSS personnalisées par source. Score de confiance : 85%.
+4. **Niveau 4 — Repli assisté par IA (Strictement validé)** :
+   - Utilisé uniquement en dernier recours.
+   - Sortie JSON impérativement validée contre le schéma strict (titre, employeur, lieu non vides). Tout JSON invalide est immédiatement rejeté.
+   - Toute offre extraite par repli IA est **toujours** envoyée dans la file de validation (`validation_items`) et n'est jamais auto-publiée.
+5. **Pages chargées par JavaScript (CSR/SPA)** :
+   - Si les offres ne figurent pas dans le HTML statique (détection de conteneurs SPA vides `#root`, `#app` ou avertissements `<noscript>`), la source passe automatiquement au statut **`"unsupported (JavaScript)"`** et la plateforme propose un lien direct de recherche.
+6. **Règle "Zéro offre inventée"** : Une page ne contenant ni JSON-LD, ni RSS, ni sélecteurs correspondants ne génère aucune offre.
+
+### 4. Respect des Sites Tiers & Politesse du Crawler
+- **User-Agent transparent** : `FitwellBot/1.0 (+https://fitwell.ma/bot; bot@fitwell.ma)`.
+- **Limitation de débit (Rate Limiting)** : Au plus **1 requête toutes les 5 secondes** par domaine (ou délai supérieur spécifié par `Crawl-delay`).
+- **Plafond par passage** : Au plus **50 pages** par crawl.
+- **Taille de page & Timeouts** : Taille maximale limitée à 2 Mo par page, timeout de connexion de 5s et de lecture de 10s.
+- **Anti-redirection inter-domaines** : Interdiction absolue des redirections HTTP 3xx pointant vers un domaine différent.
+- **Protection SSRF** : Rejet systématique des adresses IP locales et privées (`127.0.0.1`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.169.254`, IPv6 `fc00::/7` et réseaux Docker).
+- **Mise en pause automatique** : Si le site tiers répond par un code HTTP `403` ou `429`, ou si le `robots.txt` change pour interdire l'accès, la source est immédiatement suspendue avec l'alerte **`"Source paused"`**.
+- **Planification nocturne** : Passage automatique chaque nuit à 03:00 (`ScheduledExecutorService`) + bouton de déclenchement manuel en console admin.
+
+### 5. Intégrité des Données & File de Validation
+- **Données stockées** : Titre, employeur, lieu, durée estimée, extrait synthétique (max 250 caractères), date de publication, URL exacte et canonique, identifiant de source, `fetched_at` et empreinte cryptographique `content_hash` (SHA-256) pour éviter les doublons.
+- **Suppression des données personnelles** : Aucun nom de recruteur, numéro de téléphone ni adresse email n'est conservé dans les extraits (anonymisation regex systématique).
+- **File de Validation Admin (`/admin/validation`)** : Comparaison côte-à-côte de l'extrait brut de la page web avec les champs structurés extraits, avec options d'approbation et de rejet.
+- **Surveillance de la fraîcheur (Liveness check)** : Une offre dont l'URL canonique ne répond plus (code 404/410) est marquée **`"may be closed"`**, puis masquée de la plateforme après **14 jours** consécutifs de non-réponse.
+
+### 6. Suite de Tests Automatisés (`CareerPageSourceTest`)
+La conformité du connecteur est validée par 10 tests unitaires et d'intégration utilisant exclusivement des fixtures HTML/texte locales (`backend/src/test/resources/fixtures/`) sans aucun appel réseau réel :
+1. `testRobotsTxtDisallowBlocksCrawl` : URL interdite par `robots.txt` $\rightarrow$ source non appelée et mise en pause.
+2. `testCrawlDelayRespected` : Directive `Crawl-delay: 8` détectée et respectée (minimum 5 secondes garanti).
+3. `testJsonLdExtraction` : Extraction exacte de `schema.org/JobPosting` sur fixture HTML fixe.
+4. `testPageWithoutStructuredDataYieldsZeroInventedOffers` : Page sans JSON-LD ni sélecteur $\rightarrow$ zéro offre inventée.
+5. `testInvalidAiOutputRejected` : Sortie IA incomplète ou hallucinée $\rightarrow$ rejetée par le validateur de schéma.
+6. `testRecruiterContactInfoSanitized` : Adresses email et numéros de téléphone (+212, mobiles) supprimés de l'extrait.
+7. `testResponse429PausesSource` : Réponse HTTP 429 $\rightarrow$ mise en pause automatique avec alerte *"Source paused"*.
+8. `testJavaScriptOnlyPageMarkedUnsupported` : Page SPA/CSR $\rightarrow$ passage au statut *"unsupported (JavaScript)"*.
+9. `testNonAllowedSourceIsNeverCrawled` : Source non autorisée (`is_allowed = false`) $\rightarrow$ jamais appelée.
+10. `testSsrfProtection` : Blocage immédiat de Google, LinkedIn, `127.0.0.1`, IP privées et métadonnées cloud.
+
+---
+
+## 7. Règle d'Authenticité des Offres & Vérification de Liens (Explore)
+
+### 1. Zéro Donnée Fictive & Badges Réels
+- **Suppression intégrale des fausses sources** : Aucune offre du seed ni de la plateforme ne porte de badge ni de mention de LinkedIn, stagiaire.ma ou toute autre plateforme sans connecteur autorisé réellement interrogé.
+- **Offres de démonstration isolées** : Les offres de démonstration portent impérativement `origin = 'DEMO'` et un badge bien visible **`"DEMO · fictional"`**. Elles sont masquées par défaut hors de l'environnement de développement (`APP_ENV=dev`). Aucun texte en dur du type *"confirmé dans cet exemple"* n'est utilisé.
+- **Badge d'une carte** : Strictement dérivé de sa source en base de données (`Internal Lab`, `via <nom_source>`, ou `DEMO · fictional`).
+
+### 2. Liens & Redirection LinkedIn
+- Aucun carte ne se présente comme provenant de LinkedIn.
+- Les anciens liens directs ont été remplacés par un bouton explicite **`"Search on LinkedIn"`** qui ouvre une recherche pré-remplie dans un nouvel onglet avec les critères recherchés par l'étudiant.
+- Une carte externe n'existe que si elle a été réellement récupérée par un connecteur autorisé, avec son URL exacte.
+
+### 3. Gestion des Offres Clôturées & Horloge Injectable
+- **Critères d'affichage sur Explore** :
+  - *(a) Offres internes* : statut `PUBLISHED` ou `ACTIVE` dont `closes_at >= aujourd'hui` (date du serveur), ou sans date de clôture mais publiées depuis moins de 60 jours.
+  - *(b) Offres externes* : récupérées dans les 15 dernières minutes (ou en cache) et publiées depuis moins de 45 jours, ou sans date de publication mais dont le lien répond.
+- **Passage quotidien d'expiration** (`runDailyExpirationJob`) :
+  - Clôture (`CLOSED`) les offres internes dont la date `closes_at` est dépassée.
+  - Marque `"MAY_BE_CLOSED"` les offres externes de plus de 45 jours.
+- **Affichage des dates** : Chaque carte affiche systématiquement `"Closes <date>"` ou `"Posted <date>"` avec **l'année** (ex: `closes 30 Nov 2026`).
+- **Horloge injectable** : `OfferDao` et les services de calcul acceptent une instance `java.time.Clock` pour simuler n'importe quelle date dans les tests automatisés.
+
+### 4. Vérification Automatisée de Lien & Avertissement d'Infaillibilité
+- **Protocole de vérification** : Requête HTTP GET avec timeout strict de 3 secondes, limitation des redirections au même domaine uniquement, détection des codes HTTP 404/410 et recherche de marqueurs d'expiration dans le texte (*"offre expirée"*, *"no longer accepting applications"*, *"offre pourvue"*...).
+- **Traitement des offres suspectes** : Toute offre dont le lien est mort ou expiré reçoit le statut et badge `"This offer may be closed"` et est automatiquement reléguée en **fin de liste** lors du tri.
+- > [!WARNING]
+  > **Avertissement important** : *Cette vérification automatisée de lien n'est pas infaillible.* Certains sites renvoient des pages avec code HTTP 200 OK même lorsque l'offre est expirée (soft 404), chargent le statut de l'offre dynamiquement via JavaScript client, ou bloquent les vérifications automatiques par pare-feu applicatif.
+
+### 5. Consulter et Postuler (Respect de la Loi 09-08)
+- **Suppression du bouton direct** : Le bouton *"Postuler directement avec mon CV"* sur les cartes a été supprimé. Le clic sur une carte ouvre la page de détail complète.
+- **Offres internes** : Bouton **`"Apply with Fitwell"`** ouvrant un modal en 4 étapes claires :
+  1. *Documents* : vérification du CV et des pièces attachées.
+  2. *Letter* : lettre de motivation personnalisable.
+  3. *Review* : récapitulatif complet de la candidature.
+  4. *Confirmation* : case à cocher d'autorisation explicite (Loi 09-08). La soumission est bloquée tant que l'accord n'est pas coché.
+- **Offres externes** : Bouton **`"Apply on the original site"`** (`target="_blank" rel="noopener noreferrer"`). Aucune donnée n'est envoyée par Fitwell. Une option **`"I applied"`** permet à l'étudiant d'enregistrer un suivi manuel dans son tableau de bord *Applications* (statut `Sent`, source externe, self-reported).
+- **Langue de l'interface** : Intégralement en anglais.
+
+### 6. État Sans Source Externe Connectée
+- Si aucune source externe n'est configurée (absence de clé `JOOBLE_API_KEY` et aucun `CareerPageSource` actif), la plateforme affiche la bannière informative **`"No live external source connected"`** avec le motif précis.
+- En cas de recherche sans aucun résultat, un écran d'aide propose des suggestions concrètes (élargir la ville, ajuster la durée, mots-clés plus larges) ainsi qu'un bouton vers LinkedIn.
+
+### 7. Suite de Tests de Conformité (`ExploreOffersComplianceTest`)
+Validée par 10 tests automatisés couvrant l'ensemble des règles :
+1. `testNoFakeSourceBadgesInSeed` : Aucune offre du seed ne porte de badge de source réelle sans connecteur.
+2. `testExternalCardOnlyIfProducedByConnector` : Une carte externe ne peut exister qu'avec un connecteur réel et son URL exacte.
+3. `testInternalOfferPastClosesAtExcluded` : Une offre interne dont `closes_at` est passée est exclue (horloge simulée).
+4. `testExternalOfferTooOldExcluded` : Une offre externe de plus de 45 jours est exclue ou marquée expirée.
+5. `testDailyExpirationJobClosesExpiredOffers` : Le passage quotidien ferme les offres expirées.
+6. `testDeadOrExpiredLinkHandledAndSinksToBottom` : Lien 404 ou page expirée $\rightarrow$ statut `MAY_BE_CLOSED` et relégation en fin de liste.
+7. `testDemoOffersHiddenOutsideDev` : Les offres DEMO sont invisibles hors de l'environnement de développement.
+8. `testNoLiveExternalSourceBannerMessage` : Message clair si aucune source externe n'est connectée.
+9. `testApplyOnOriginalSiteDoesNotCreateFitwellApplication` : *"Apply on the original site"* n'envoie aucune donnée et crée un suivi manuel avec confirmation.
+10. `testApplyWithFitwellRequiresExplicitConfirmation` : *"Apply with Fitwell"* rejette toute candidature sans confirmation explicite (HTTP 400).
+
+
+
 
 

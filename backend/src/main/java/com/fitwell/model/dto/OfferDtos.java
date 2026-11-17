@@ -50,11 +50,29 @@ public final class OfferDtos {
             int places,
             String status,
             String origin,
+            String sourceName,
+            String sourceUrl,
             LocalDate closesAt,
             long daysRemaining,
             List<SkillItem> skills,
-            ScoreBreakdown score
-    ) {}
+            ScoreBreakdown score,
+            String displayDate,
+            boolean isMayBeClosed
+    ) {
+        public OfferCardResponse(
+                UUID id, UUID labId, String labName, String labUniversity, String labCity,
+                String title, String domain, int durationMonths, LocalDate startDate,
+                String location, String compensationType, String compensationAmount,
+                String description, List<String> tasks, int places, String status,
+                String origin, String sourceName, String sourceUrl, LocalDate closesAt,
+                long daysRemaining, List<SkillItem> skills, ScoreBreakdown score
+        ) {
+            this(id, labId, labName, labUniversity, labCity, title, domain, durationMonths,
+                 startDate, location, compensationType, compensationAmount, description,
+                 tasks, places, status, origin, sourceName, sourceUrl, closesAt,
+                 daysRemaining, skills, score, null, false);
+        }
+    }
 
     public record QueryPill(
             String label,
@@ -73,6 +91,15 @@ public final class OfferDtos {
             List<QueryPill> pills
     ) {}
 
+    public record WeeklyActionItem(
+            String id,
+            String title,
+            String deadline,
+            String type,
+            boolean hasAlertDot,
+            String link
+    ) {}
+
     public record StudentHomeResponse(
             String studentName,
             String studentUniversity,
@@ -81,7 +108,15 @@ public final class OfferDtos {
             int inReviewCount,
             int interviewsCount,
             OfferCardResponse bestMatchToday,
-            List<OfferCardResponse> recommendedOffers
+            List<OfferCardResponse> recommendedOffers,
+            List<WeeklyActionItem> weeklyActions
+    ) {}
+
+    public record ApplyOfferRequest(
+            String offerId,
+            String coverLetter,
+            Boolean isManualExternal,
+            Boolean confirmed
     ) {}
 }
 

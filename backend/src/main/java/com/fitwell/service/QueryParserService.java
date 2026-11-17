@@ -52,24 +52,60 @@ public final class QueryParserService {
     // Domain keywords
     private static final Map<String, String> DOMAIN_PATTERNS = new LinkedHashMap<>();
     static {
+        DOMAIN_PATTERNS.put("intelligence artificielle", "Machine Learning");
+        DOMAIN_PATTERNS.put("ia", "Machine Learning");
+        DOMAIN_PATTERNS.put("ai", "Machine Learning");
+        DOMAIN_PATTERNS.put("machine learning", "Machine Learning");
+        DOMAIN_PATTERNS.put("deep learning", "Machine Learning");
+        DOMAIN_PATTERNS.put("ml", "Machine Learning");
+        DOMAIN_PATTERNS.put("computer vision", "Computer Vision");
+        DOMAIN_PATTERNS.put("vision par ordinateur", "Computer Vision");
+        DOMAIN_PATTERNS.put("vision", "Computer Vision");
+        DOMAIN_PATTERNS.put("data analysis", "Data Analysis");
+        DOMAIN_PATTERNS.put("analyse de donn[ée]es", "Data Analysis");
+        DOMAIN_PATTERNS.put("analyse des donn[ée]es", "Data Analysis");
+        DOMAIN_PATTERNS.put("data science", "Data Science");
+        DOMAIN_PATTERNS.put("science des donn[ée]es", "Data Science");
         DOMAIN_PATTERNS.put("medical image", "Medical imaging");
         DOMAIN_PATTERNS.put("medical images", "Medical imaging");
         DOMAIN_PATTERNS.put("medical imaging", "Medical imaging");
         DOMAIN_PATTERNS.put("imagerie m[ée]dicale", "Medical imaging");
-        DOMAIN_PATTERNS.put("computer vision", "Computer Vision");
-        DOMAIN_PATTERNS.put("vision par ordinateur", "Computer Vision");
-        DOMAIN_PATTERNS.put("vision", "Computer Vision");
+        DOMAIN_PATTERNS.put("d[ée]veloppement web", "Web Development");
+        DOMAIN_PATTERNS.put("stage web", "Web Development");
+        DOMAIN_PATTERNS.put("fullstack", "Web Development");
+        DOMAIN_PATTERNS.put("full-stack", "Web Development");
+        DOMAIN_PATTERNS.put("react", "Web Development");
+        DOMAIN_PATTERNS.put("laravel", "Web Development");
+        DOMAIN_PATTERNS.put("web", "Web Development");
+        DOMAIN_PATTERNS.put("robotique", "Robotics");
+        DOMAIN_PATTERNS.put("robotics", "Robotics");
+        DOMAIN_PATTERNS.put("drone", "Robotics");
+        DOMAIN_PATTERNS.put("mat[ée]riaux", "Materials Science");
+        DOMAIN_PATTERNS.put("materials", "Materials Science");
+        DOMAIN_PATTERNS.put("solar", "Materials Science");
+        DOMAIN_PATTERNS.put("solaire", "Materials Science");
+        DOMAIN_PATTERNS.put("climat", "Climate & Earth Science");
+        DOMAIN_PATTERNS.put("climate", "Climate & Earth Science");
+        DOMAIN_PATTERNS.put("erosion", "Climate & Earth Science");
+        DOMAIN_PATTERNS.put("[ée]rosion", "Climate & Earth Science");
+        DOMAIN_PATTERNS.put("ocean", "Climate & Earth Science");
+        DOMAIN_PATTERNS.put("mobile", "Mobile Development");
+        DOMAIN_PATTERNS.put("flutter", "Mobile Development");
+        DOMAIN_PATTERNS.put("react native", "Mobile Development");
+        DOMAIN_PATTERNS.put("devops", "DevOps & Cloud");
+        DOMAIN_PATTERNS.put("cloud", "DevOps & Cloud");
+        DOMAIN_PATTERNS.put("docker", "DevOps & Cloud");
+        DOMAIN_PATTERNS.put("aws", "DevOps & Cloud");
+        DOMAIN_PATTERNS.put("business intelligence", "Business Intelligence");
+        DOMAIN_PATTERNS.put("power bi", "Business Intelligence");
+        DOMAIN_PATTERNS.put("bi", "Business Intelligence");
+        DOMAIN_PATTERNS.put("s[ée]curit[ée]", "Cyber Security");
+        DOMAIN_PATTERNS.put("security", "Cyber Security");
+        DOMAIN_PATTERNS.put("cyber", "Cyber Security");
         DOMAIN_PATTERNS.put("bioinformatique", "Bioinformatics");
         DOMAIN_PATTERNS.put("bioinformatics", "Bioinformatics");
         DOMAIN_PATTERNS.put("g[ée]nomique", "Genomics");
         DOMAIN_PATTERNS.put("genomics", "Genomics");
-        DOMAIN_PATTERNS.put("nlp", "NLP");
-        DOMAIN_PATTERNS.put("natural language", "NLP");
-        DOMAIN_PATTERNS.put("traitement du langage", "NLP");
-        DOMAIN_PATTERNS.put("machine learning", "Machine Learning");
-        DOMAIN_PATTERNS.put("deep learning", "Machine Learning");
-        DOMAIN_PATTERNS.put("data science", "Data Science");
-        DOMAIN_PATTERNS.put("science des donn[ée]es", "Data Science");
     }
 
     public ParsedQueryResponse parse(String query) {
@@ -97,6 +133,7 @@ public final class QueryParserService {
         Integer minDuration = null;
         Integer maxDuration = null;
         String durationLabel = null;
+        boolean isFrench = lower.contains("mois") || lower.contains("cherche") || lower.contains("stage") || lower.contains("pendant");
 
         // Pattern: "3 to 5 months" / "3 à 5 mois"
         Pattern rangePattern = Pattern.compile("(\\d+|[a-z]+)\\s*(?:to|-|à|au|a)\\s*(\\d+|[a-z]+)\\s*(?:months?|mois)", Pattern.CASE_INSENSITIVE);
@@ -111,9 +148,9 @@ public final class QueryParserService {
             }
         }
 
-        // Pattern: "about four months" / "environ 4 mois" / "4 months" / "6 mois"
+        // Pattern: "about four months" / "environ 4 mois" / "pendant quatre mois" / "4 months" / "6 mois"
         if (minDuration == null) {
-            Pattern singlePattern = Pattern.compile("(?:about|environ|approx(?:imately)?|around)?\\s*(\\d+|[a-z]+)\\s*(?:months?|mois)", Pattern.CASE_INSENSITIVE);
+            Pattern singlePattern = Pattern.compile("(?:about|environ|approx(?:imately)?|around|pendant|pour|durant)?\\s*(\\d+|[a-z]+)\\s*(?:months?|mois)", Pattern.CASE_INSENSITIVE);
             Matcher singleMatcher = singlePattern.matcher(lower);
             if (singleMatcher.find()) {
                 Integer months = parseNumberOrWord(singleMatcher.group(1));
@@ -123,6 +160,13 @@ public final class QueryParserService {
                     durationLabel = minDuration + " to " + maxDuration + " months";
                 }
             }
+        }
+
+        // Pattern: "PFE" defaults to 5 to 6 months in Moroccan universities
+        if (minDuration == null && lower.contains("pfe")) {
+            minDuration = 5;
+            maxDuration = 6;
+            durationLabel = "5 to 6 months";
         }
 
         // 3. Extract Domains
@@ -137,8 +181,10 @@ public final class QueryParserService {
 
         // 4. Extract Compensation
         String compensation = "Any funding";
-        if (lower.contains("funded") || lower.contains("rémunéré") || lower.contains("remunere") ||
-            lower.contains("paid") || lower.contains("gratification") || lower.contains("indemnité")) {
+        boolean isFundedRequested = lower.contains("funded") || lower.contains("rémunéré") || lower.contains("remunere") ||
+            lower.contains("rémunération") || lower.contains("remuneration") ||
+            lower.contains("paid") || lower.contains("gratification") || lower.contains("indemnité");
+        if (isFundedRequested) {
             compensation = "Funded";
         }
 
@@ -153,7 +199,8 @@ public final class QueryParserService {
         if (durationLabel != null) {
             pills.add(new QueryPill(durationLabel, "duration"));
         }
-        pills.add(new QueryPill(compensation, "compensation"));
+        String compensationPillLabel = isFundedRequested ? "Funded" : "Any funding";
+        pills.add(new QueryPill(compensationPillLabel, "compensation"));
 
         return new ParsedQueryResponse(
                 query,

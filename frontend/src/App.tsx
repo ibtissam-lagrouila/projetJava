@@ -13,7 +13,6 @@ import { StudentExplorePage } from './pages/student/StudentExplorePage';
 import { StudentOfferDetailPage } from './pages/student/StudentOfferDetailPage';
 import { StudentApplicationsPage } from './pages/student/StudentApplicationsPage';
 import { StudentMessagesPage } from './pages/student/StudentMessagesPage';
-import { StudentCvStudioPage } from './pages/student/StudentCvStudioPage';
 import { StudentSettingsPage } from './pages/student/StudentSettingsPage';
 import { StudentOnboardingPage } from './pages/student/StudentOnboardingPage';
 import { StudentOnboardingInterestsPage } from './pages/student/StudentOnboardingInterestsPage';
@@ -58,7 +57,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRole?: string
   if (allowedRole && user.role !== allowedRole) {
     // Redirect to user's authorized home if attempting to access another role's space
     if (user.role === 'STUDENT') {
-      return <Navigate to={user.onboardingCompleted === false ? '/onboarding/cv' : '/student/home'} replace />;
+      return <Navigate to="/onboarding/cv" replace />;
     }
     if (user.role === 'LAB') return <Navigate to="/lab/dashboard" replace />;
     if (user.role === 'ADMIN') return <Navigate to="/admin/overview" replace />;
@@ -83,7 +82,7 @@ const RootRedirect: React.FC = () => {
   }
 
   if (user.role === 'STUDENT') {
-    return <Navigate to={user.onboardingCompleted === false ? '/onboarding/cv' : '/student/home'} replace />;
+    return <Navigate to="/onboarding/cv" replace />;
   }
   if (user.role === 'LAB') {
     return <Navigate to={user.isLabApproved ? '/lab/dashboard' : '/lab/pending'} replace />;
@@ -122,7 +121,7 @@ export const App: React.FC = () => {
             <Route path="/student/offers/:id" element={<StudentOfferDetailPage />} />
             <Route path="/student/applications" element={<StudentApplicationsPage />} />
             <Route path="/student/messages" element={<StudentMessagesPage />} />
-            <Route path="/student/cv-studio" element={<StudentCvStudioPage />} />
+            <Route path="/student/cv-studio" element={<StudentOnboardingPage />} />
             <Route path="/student/settings" element={<StudentSettingsPage />} />
 
             {/* Lab Routes */}

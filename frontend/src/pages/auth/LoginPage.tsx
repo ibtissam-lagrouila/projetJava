@@ -59,11 +59,7 @@ export const LoginPage: React.FC = () => {
 
       // Routing logic based on role & state
       if (authData.user.role === 'STUDENT') {
-        if (authData.user.onboardingCompleted === false) {
-          navigate('/student/onboarding');
-        } else {
-          navigate('/student/home');
-        }
+        navigate('/onboarding/cv');
       } else if (authData.user.role === 'LAB') {
         if (authData.user.isLabApproved) {
           navigate('/lab/dashboard');

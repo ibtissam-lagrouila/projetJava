@@ -79,12 +79,23 @@ public final class AuthHandler {
         boolean onboardingSkipped = false;
         boolean isVerifiedStudent = false;
 
+        String fullName = auth.user().email();
+        String studentLevel = "Master";
         if (auth.user().role() == Role.LAB && auth.labId() != null) {
             isLabApproved = labDao.isLabApproved(auth.labId());
         } else if (auth.user().role() == Role.STUDENT) {
             StudentProfileDao.OnboardingStatus status = studentProfileDao.getOnboardingStatus(auth.user().id());
             onboardingCompleted = status.completed() || status.skipped();
             onboardingSkipped = status.skipped();
+            var profileOpt = studentProfileDao.findByUserId(auth.user().id());
+            if (profileOpt.isPresent()) {
+                if (profileOpt.get().fullName() != null && !profileOpt.get().fullName().isBlank()) {
+                    fullName = profileOpt.get().fullName();
+                }
+                if (profileOpt.get().level() != null && !profileOpt.get().level().isBlank()) {
+                    studentLevel = profileOpt.get().level();
+                }
+            }
             String email = auth.user().email();
             if (email != null && email.contains("@")) {
                 String domain = email.substring(email.indexOf("@") + 1);
@@ -98,7 +109,8 @@ public final class AuthHandler {
                 auth.user().email(),
                 auth.user().role(),
                 auth.user().isEmailVerified(),
-                auth.user().email(),
+                fullName,
+                studentLevel,
                 auth.labId(),
                 isLabApproved,
                 onboardingCompleted,

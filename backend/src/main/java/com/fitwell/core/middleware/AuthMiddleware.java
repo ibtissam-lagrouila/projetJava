@@ -13,8 +13,6 @@ import com.fitwell.model.entity.LabMember;
 import com.fitwell.model.entity.Session;
 import com.fitwell.model.entity.User;
 import com.fitwell.model.enums.Role;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 
@@ -22,7 +20,6 @@ public final class AuthMiddleware implements Middleware {
 
     public static final String AUTH_ATTRIBUTE = "auth";
     public static final String SESSION_COOKIE_NAME = "fitwell_session";
-    private static final Logger log = LoggerFactory.getLogger(AuthMiddleware.class);
 
     private final SessionDao sessionDao;
     private final UserDao userDao;

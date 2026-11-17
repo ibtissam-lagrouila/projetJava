@@ -34,6 +34,7 @@ export const StudentOnboardingPage: React.FC = () => {
   const [education, setEducation] = useState<string>('Master 1, Data science');
   const [editingEducation, setEditingEducation] = useState<boolean>(false);
   const [educationInput, setEducationInput] = useState<string>('Master 1, Data science');
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(false);
 
   const [university] = useState<string>('Université Hassan II de Casablanca (UH2C)');
 
@@ -76,29 +77,34 @@ export const StudentOnboardingPage: React.FC = () => {
         return res.json();
       })
       .then((data) => {
-        if (data && data.hasDraft && data.draft && data.draft.parsedJson) {
-          try {
-            const parsed = typeof data.draft.parsedJson === 'string'
-              ? JSON.parse(data.draft.parsedJson)
-              : data.draft.parsedJson;
+        if (data) {
+          if (data.onboardingCompleted) {
+            setOnboardingCompleted(true);
+          }
+          if (data.hasDraft && data.draft && data.draft.parsedJson) {
+            try {
+              const parsed = typeof data.draft.parsedJson === 'string'
+                ? JSON.parse(data.draft.parsedJson)
+                : data.draft.parsedJson;
 
-            setUploadedFile({
-              cvId: data.draft.cvId,
-              name: data.draft.fileName || 'CV.pdf',
-              sizeKb: parsed.fileSizeKb || 214,
-              path: '',
-            });
+              setUploadedFile({
+                cvId: data.draft.cvId,
+                name: data.draft.fileName || 'CV.pdf',
+                sizeKb: parsed.fileSizeKb || 214,
+                path: '',
+              });
 
-            if (parsed.education !== undefined) {
-              setEducation(parsed.education);
-              setEducationInput(parsed.education);
+              if (parsed.education !== undefined) {
+                setEducation(parsed.education);
+                setEducationInput(parsed.education);
+              }
+              if (Array.isArray(parsed.skills)) setSkills(parsed.skills);
+              if (Array.isArray(parsed.languages)) setLanguages(parsed.languages);
+              if (Array.isArray(parsed.projects)) setProjects(parsed.projects);
+              if (parsed.noTextFound !== undefined) setNoTextFound(parsed.noTextFound);
+            } catch {
+              // Ignore parse errors
             }
-            if (Array.isArray(parsed.skills)) setSkills(parsed.skills);
-            if (Array.isArray(parsed.languages)) setLanguages(parsed.languages);
-            if (Array.isArray(parsed.projects)) setProjects(parsed.projects);
-            if (parsed.noTextFound !== undefined) setNoTextFound(parsed.noTextFound);
-          } catch {
-            // Ignore parse errors
           }
         }
       })
@@ -317,7 +323,11 @@ export const StudentOnboardingPage: React.FC = () => {
           }),
         });
       }
-      navigate('/onboarding/interests');
+      if (onboardingCompleted) {
+        navigate('/student/home');
+      } else {
+        navigate('/onboarding/interests');
+      }
     } catch (err: any) {
       setError('Failed to confirm CV: ' + err.message);
     } finally {
@@ -329,7 +339,11 @@ export const StudentOnboardingPage: React.FC = () => {
     <div className="min-h-screen bg-[#D3B996] text-[#241814] flex flex-col justify-between p-8 md:p-12 font-sans select-none">
       {/* Top Header Navigation matching mockup page-02 */}
       <div className="flex items-center justify-between pb-8">
-        <div className="flex items-center gap-3">
+        <div
+          onClick={() => navigate('/student/home')}
+          className="flex items-center gap-3 cursor-pointer"
+          title="Go to Home"
+        >
           <div className="w-7 h-7 bg-[#5B1421] rounded flex items-center justify-center font-serif text-white font-bold text-lg shadow-sm">
             F
           </div>
@@ -362,7 +376,7 @@ export const StudentOnboardingPage: React.FC = () => {
           onClick={handleSkip}
           className="text-xs font-medium text-[#66554D] hover:text-[#241814] transition-colors cursor-pointer"
         >
-          Skip for now
+          {onboardingCompleted ? 'Back to Home' : 'Skip for now'}
         </button>
       </div>
 

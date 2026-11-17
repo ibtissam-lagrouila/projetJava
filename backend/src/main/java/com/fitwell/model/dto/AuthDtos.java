@@ -46,6 +46,7 @@ public final class AuthDtos {
             Role role,
             boolean emailVerified,
             String fullName,
+            String level,
             UUID labId,
             boolean isLabApproved,
             boolean onboardingCompleted,

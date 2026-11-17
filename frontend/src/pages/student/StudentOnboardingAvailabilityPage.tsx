@@ -21,18 +21,9 @@ export const StudentOnboardingAvailabilityPage: React.FC = () => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          fullName: user?.fullName || 'Student',
-          university: 'Moroccan University',
-          level: 'Master 1',
-          skills: [],
-          languages: ['Arabic', 'French', 'English'],
-          projects: [],
-          interests: ['Medical imaging', 'Machine Learning'],
+          fullName: user?.fullName,
           availabilityStart,
           availabilityDurationMonths: durationMonths,
-          cvFileName: 'CV.pdf',
-          cvSavedPath: '',
-          rawCvText: '',
         }),
       });
     } catch {

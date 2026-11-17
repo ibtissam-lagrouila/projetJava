@@ -1,7 +1,6 @@
 package com.fitwell.dao;
 
 import com.fitwell.core.db.ConnectionPool;
-import com.fitwell.model.enums.Role;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

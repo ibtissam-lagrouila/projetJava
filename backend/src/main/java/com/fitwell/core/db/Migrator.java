@@ -32,7 +32,9 @@ public final class Migrator {
             // Discover and apply migrations
             List<MigrationScript> scripts = List.of(
                     new MigrationScript(1, "V001__initial_schema.sql", "/db/migrations/V001__initial_schema.sql"),
-                    new MigrationScript(2, "V002__onboarding_state.sql", "/db/migrations/V002__onboarding_state.sql")
+                    new MigrationScript(2, "V002__onboarding_state.sql", "/db/migrations/V002__onboarding_state.sql"),
+                    new MigrationScript(3, "V003__career_page_sourcing.sql", "/db/migrations/V003__career_page_sourcing.sql"),
+                    new MigrationScript(4, "V004__demo_and_liveness_rules.sql", "/db/migrations/V004__demo_and_liveness_rules.sql")
             );
 
             for (MigrationScript script : scripts) {

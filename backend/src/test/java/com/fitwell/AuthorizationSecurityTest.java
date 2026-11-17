@@ -1,6 +1,5 @@
 package com.fitwell;
 
-import com.fitwell.api.auth.AuthHandler;
 import com.fitwell.core.http.HttpResponse;
 import com.fitwell.core.http.HttpStatus;
 import com.fitwell.core.http.RequestContext;
@@ -11,11 +10,9 @@ import com.fitwell.core.middleware.RateLimitMiddleware;
 import com.fitwell.core.middleware.RoleGuardMiddleware;
 import com.fitwell.core.security.AuthContext;
 import com.fitwell.dao.UserDao;
-import com.fitwell.model.dto.AuthDtos.LoginRequest;
 import com.fitwell.model.entity.User;
 import com.fitwell.model.enums.LabRole;
 import com.fitwell.model.enums.Role;
-import com.fitwell.service.AuthService;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,29 +20,23 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.io.ByteArrayInputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class AuthorizationSecurityTest {
 
     private Router router;
     private UserDao userDao;
-    private AuthService authService;
 
     @BeforeEach
     void setUp() {
-        userDao = Mockito.mock(UserDao.class);
-        authService = Mockito.mock(AuthService.class);
+        userDao = mock(UserDao.class);
         router = new Router();
         router.use(new ErrorHandlingMiddleware());
 
@@ -70,7 +61,7 @@ class AuthorizationSecurityTest {
     }
 
     private RequestContext createMockContext(String method, String path, AuthContext auth) {
-        HttpExchange exchange = Mockito.mock(HttpExchange.class);
+        HttpExchange exchange = mock(HttpExchange.class);
         when(exchange.getRequestMethod()).thenReturn(method);
         when(exchange.getRequestURI()).thenReturn(URI.create(path));
         when(exchange.getRequestHeaders()).thenReturn(new Headers());
@@ -149,7 +140,7 @@ class AuthorizationSecurityTest {
     @Test
     @DisplayName("Rate limiter returns 429 Too Many Requests when threshold exceeded")
     void rateLimiterReturns429() throws Exception {
-        when(userDao.countRecentFailedAttempts(any(), anyString(), Mockito.anyInt())).thenReturn(6);
+        when(userDao.countRecentFailedAttempts(any(), anyString(), anyInt())).thenReturn(6);
 
         Router rateLimitedRouter = new Router();
         rateLimitedRouter.use(new RateLimitMiddleware(userDao));

@@ -5,7 +5,6 @@ import com.fitwell.dao.StudentProfileDao.StudentFullProfile;
 import com.fitwell.dao.StudentProfileDao.StudentProjectRecord;
 import com.fitwell.model.dto.OfferDtos.*;
 
-import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -88,6 +87,103 @@ public final class MatchingService {
         );
     }
 
+    public ScoreBreakdown computeScore(StudentFullProfile student, OfferRecord offer, ParsedQueryResponse query) {
+        ScoreBreakdown baseScore = computeScore(student, offer);
+        if (query == null || (query.rawQuery() != null && query.rawQuery().isBlank())) {
+            return baseScore;
+        }
+
+        // 1. City Relevance
+        int cityRelevance = 70;
+        if (query.city() != null && !query.city().isBlank()) {
+            String loc = (offer.location() != null ? offer.location() : "").toLowerCase(Locale.ROOT);
+            if (loc.contains(query.city().toLowerCase(Locale.ROOT))) {
+                cityRelevance = 100;
+            } else {
+                cityRelevance = 35;
+            }
+        }
+
+        // 2. Domain / Keyword Relevance
+        int domainRelevance = 70;
+        String offerAllText = (
+                (offer.domain() != null ? offer.domain() : "") + " " +
+                (offer.title() != null ? offer.title() : "") + " " +
+                (offer.description() != null ? offer.description() : "")
+        ).toLowerCase(Locale.ROOT);
+
+        if (query.domains() != null && !query.domains().isEmpty()) {
+            boolean hasDomainHit = false;
+            for (String qd : query.domains()) {
+                String normQd = qd.toLowerCase(Locale.ROOT);
+                if (offerAllText.contains(normQd)) {
+                    hasDomainHit = true;
+                    break;
+                }
+                if (normQd.contains("machine learning") || normQd.contains("ai") || normQd.contains("ia")) {
+                    if (offerAllText.contains("intelligence artificielle") || offerAllText.contains("ia") ||
+                        offerAllText.contains("machine learning") || offerAllText.contains("deep learning") ||
+                        offerAllText.contains("computer vision") || offerAllText.contains("vision") ||
+                        offerAllText.contains("data science") || offerAllText.contains("data analysis") ||
+                        offerAllText.contains("données")) {
+                        hasDomainHit = true;
+                        break;
+                    }
+                }
+            }
+            domainRelevance = hasDomainHit ? 100 : 40;
+        }
+
+        // 3. Duration Relevance
+        int durationRelevance = 80;
+        if (query.minDurationMonths() != null && query.maxDurationMonths() != null) {
+            int d = offer.durationMonths();
+            if (d >= query.minDurationMonths() && d <= query.maxDurationMonths()) {
+                durationRelevance = 100;
+            } else if (Math.abs(d - query.minDurationMonths()) <= 1 || Math.abs(d - query.maxDurationMonths()) <= 1) {
+                durationRelevance = 85;
+            } else {
+                durationRelevance = 50;
+            }
+        }
+
+        // 4. Compensation Relevance
+        int fundingRelevance = 90;
+        if ("Funded".equalsIgnoreCase(query.compensation())) {
+            String comp = (offer.compensationType() != null ? offer.compensationType() : "").toLowerCase(Locale.ROOT);
+            fundingRelevance = (comp.contains("fund") || comp.contains("remun") || comp.contains("paid")) ? 100 : 50;
+        }
+
+        // Weighted query relevance
+        double queryFactor = (0.35 * domainRelevance + 0.35 * cityRelevance + 0.15 * durationRelevance + 0.15 * fundingRelevance);
+
+        // Adaptive composite score: 50% profile fit + 50% query relevance
+        int adaptedScore = (int) Math.round(0.50 * baseScore.overallScore() + 0.50 * queryFactor);
+
+        // If an explicit city was requested, penalize offers in different cities
+        if (query.city() != null && !query.city().isBlank()) {
+            String loc = (offer.location() != null ? offer.location() : "").toLowerCase(Locale.ROOT);
+            if (!loc.contains(query.city().toLowerCase(Locale.ROOT))) {
+                adaptedScore = Math.min(55, (int) Math.round(adaptedScore * 0.65));
+            }
+        }
+
+        adaptedScore = Math.min(99, Math.max(20, adaptedScore));
+
+        String matchLabel = getMatchLabel(adaptedScore);
+
+        return new ScoreBreakdown(
+                adaptedScore,
+                matchLabel,
+                baseScore.skillsScore(),
+                baseScore.interestScore(),
+                baseScore.datesScore(),
+                baseScore.whyPicked(),
+                baseScore.matchedSkills(),
+                baseScore.gapToClose()
+        );
+    }
+
     private ScoreBreakdown computeUnauthenticatedScore(OfferRecord offer) {
         return new ScoreBreakdown(
                 0,
@@ -130,9 +226,29 @@ public final class MatchingService {
         if (ownedSkills.contains(normalizedSkill)) {
             return true;
         }
+        if (("ml".equals(normalizedSkill) && (ownedSkills.contains("machinelearning") || ownedSkills.contains("ml"))) ||
+            ("machinelearning".equals(normalizedSkill) && (ownedSkills.contains("ml") || ownedSkills.contains("machinelearning")))) {
+            return true;
+        }
+        if (("ia".equals(normalizedSkill) || "ai".equals(normalizedSkill)) &&
+            (ownedSkills.contains("machinelearning") || ownedSkills.contains("artificialintelligence") || ownedSkills.contains("ia") || ownedSkills.contains("intelligenceartificielle"))) {
+            return true;
+        }
+        if (("artificialintelligence".equals(normalizedSkill) || "intelligenceartificielle".equals(normalizedSkill)) &&
+            (ownedSkills.contains("ia") || ownedSkills.contains("machinelearning") || ownedSkills.contains("ai"))) {
+            return true;
+        }
+        if (("analysededonnees".equals(normalizedSkill) || "dataanalysis".equals(normalizedSkill)) &&
+            (ownedSkills.contains("machinelearning") || ownedSkills.contains("ml") || ownedSkills.contains("python") || ownedSkills.contains("datascience"))) {
+            return true;
+        }
+        if (("computervision".equals(normalizedSkill) && (ownedSkills.contains("opencv") || ownedSkills.contains("computervision"))) ||
+            ("opencv".equals(normalizedSkill) && ownedSkills.contains("computervision"))) {
+            return true;
+        }
         // Substring / token matching (e.g., "pytorch" inside "pytorch segmentation")
         for (String owned : ownedSkills) {
-            if (owned.contains(normalizedSkill) || normalizedSkill.contains(owned)) {
+            if (owned.length() >= 4 && (owned.contains(normalizedSkill) || normalizedSkill.contains(owned))) {
                 return true;
             }
         }
@@ -286,7 +402,9 @@ public final class MatchingService {
 
     private String normalize(String s) {
         if (s == null) return "";
-        return s.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        String norm = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD);
+        norm = norm.replaceAll("\\p{M}", "");
+        return norm.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 }
 

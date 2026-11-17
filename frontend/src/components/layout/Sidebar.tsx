@@ -49,7 +49,7 @@ export const Sidebar: React.FC = () => {
     { label: 'Explore', path: '/student/explore', icon: Compass },
     { label: 'Applications', path: '/student/applications', icon: Send, badgeKey: 'applications' },
     { label: 'Messages', path: '/student/messages', icon: MessageSquare, badgeKey: 'messages' },
-    { label: 'CV studio', path: '/student/cv-studio', icon: FileText },
+    { label: 'CV studio', path: '/onboarding/cv', icon: FileText },
     { label: 'Settings', path: '/student/settings', icon: Sliders },
   ];
 
@@ -91,7 +91,7 @@ export const Sidebar: React.FC = () => {
   };
 
   const getSubtitle = () => {
-    if (role === 'STUDENT') return 'Master 1, data science';
+    if (role === 'STUDENT') return user.level || 'Master 1, data science';
     if (role === 'LAB') return 'Genomics Unit, Fès';
     return 'Platform admin';
   };

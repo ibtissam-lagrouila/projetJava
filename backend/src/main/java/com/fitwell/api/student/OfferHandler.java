@@ -11,10 +11,12 @@ import com.fitwell.dao.StudentProfileDao;
 import com.fitwell.dao.StudentProfileDao.StudentFullProfile;
 import com.fitwell.model.dto.OfferDtos.*;
 import com.fitwell.service.MatchingService;
+import com.fitwell.service.OfferLinkVerifierService;
 import com.fitwell.service.QueryParserService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,15 +26,25 @@ public final class OfferHandler {
     private final StudentProfileDao studentProfileDao;
     private final MatchingService matchingService;
     private final QueryParserService queryParserService;
+    private final OfferLinkVerifierService linkVerifier;
 
     public OfferHandler(OfferDao offerDao,
-                        StudentProfileDao studentProfileDao,
-                        MatchingService matchingService,
-                        QueryParserService queryParserService) {
+            StudentProfileDao studentProfileDao,
+            MatchingService matchingService,
+            QueryParserService queryParserService) {
+        this(offerDao, studentProfileDao, matchingService, queryParserService, new OfferLinkVerifierService());
+    }
+
+    public OfferHandler(OfferDao offerDao,
+            StudentProfileDao studentProfileDao,
+            MatchingService matchingService,
+            QueryParserService queryParserService,
+            OfferLinkVerifierService linkVerifier) {
         this.offerDao = offerDao;
         this.studentProfileDao = studentProfileDao;
         this.matchingService = matchingService;
         this.queryParserService = queryParserService;
+        this.linkVerifier = linkVerifier != null ? linkVerifier : new OfferLinkVerifierService();
     }
 
     public HttpResponse getOffers(RequestContext ctx) throws Exception {
@@ -47,13 +59,11 @@ public final class OfferHandler {
         String domainFilter = ctx.getQueryParam("domain");
         String durationParam = ctx.getQueryParam("duration");
         String minScoreParam = ctx.getQueryParam("minScore");
+        String sortBy = ctx.getQueryParam("sort"); // "bestMatch" or "closesSoon"
 
         ParsedQueryResponse parsedQuery = null;
         if (freeQuery != null && !freeQuery.isBlank()) {
             parsedQuery = queryParserService.parse(freeQuery);
-            if (cityFilter == null && parsedQuery.city() != null) {
-                cityFilter = parsedQuery.city();
-            }
         }
 
         List<OfferRecord> rawOffers = offerDao.findPublishedOffers();
@@ -63,18 +73,19 @@ public final class OfferHandler {
         if (minScoreParam != null && !minScoreParam.isBlank()) {
             try {
                 minScore = Integer.parseInt(minScoreParam);
-            } catch (NumberFormatException ignored) {}
+            } catch (NumberFormatException ignored) {
+            }
         }
 
         for (OfferRecord offer : rawOffers) {
-            ScoreBreakdown score = matchingService.computeScore(profile, offer);
+            ScoreBreakdown score = matchingService.computeScore(profile, offer, parsedQuery);
 
             // Filter by minimum score
             if (score.overallScore() < minScore) {
                 continue;
             }
 
-            // Filter by city
+            // Filter by city if explicit dropdown filter is set (not "all")
             if (cityFilter != null && !cityFilter.isBlank() && !"all".equalsIgnoreCase(cityFilter)) {
                 String loc = (offer.location() != null ? offer.location() : "").toLowerCase(Locale.ROOT);
                 String cFilter = cityFilter.toLowerCase(Locale.ROOT);
@@ -83,7 +94,7 @@ public final class OfferHandler {
                 }
             }
 
-            // Filter by domain
+            // Filter by domain if explicit dropdown filter is set (not "all")
             if (domainFilter != null && !domainFilter.isBlank() && !"all".equalsIgnoreCase(domainFilter)) {
                 String dOffer = (offer.domain() != null ? offer.domain() : "").toLowerCase(Locale.ROOT);
                 String dFilter = domainFilter.toLowerCase(Locale.ROOT);
@@ -92,61 +103,60 @@ public final class OfferHandler {
                 }
             }
 
-            // Filter by query domains if freeQuery was parsed
-            if (parsedQuery != null && !parsedQuery.domains().isEmpty()) {
-                boolean matchDomain = false;
-                String dOffer = (
-                        (offer.domain() != null ? offer.domain() : "") + " " +
-                        (offer.title() != null ? offer.title() : "") + " " +
-                        (offer.description() != null ? offer.description() : "")
-                ).toLowerCase(Locale.ROOT);
-
-                for (String qd : parsedQuery.domains()) {
-                    if (dOffer.contains(qd.toLowerCase(Locale.ROOT))) {
-                        matchDomain = true;
-                        break;
-                    }
-                }
-                if (!matchDomain) {
-                    continue;
-                }
-            }
-
-            // Filter by duration
+            // Filter by duration if explicit dropdown filter is set (not "all")
             if (durationParam != null && !durationParam.isBlank() && !"all".equalsIgnoreCase(durationParam)) {
                 try {
                     int d = Integer.parseInt(durationParam);
                     if (offer.durationMonths() != d) {
                         continue;
                     }
-                } catch (NumberFormatException ignored) {}
-            } else if (parsedQuery != null && parsedQuery.minDurationMonths() != null && parsedQuery.maxDurationMonths() != null) {
-                if (offer.durationMonths() < parsedQuery.minDurationMonths() || offer.durationMonths() > parsedQuery.maxDurationMonths()) {
-                    continue;
-                }
-            }
-
-            // Filter by funding if parsed
-            if (parsedQuery != null && "Funded".equalsIgnoreCase(parsedQuery.compensation())) {
-                String comp = (offer.compensationType() != null ? offer.compensationType() : "").toLowerCase(Locale.ROOT);
-                if (!comp.contains("fund") && !comp.contains("remun") && !comp.contains("paid")) {
-                    continue;
+                } catch (NumberFormatException ignored) {
                 }
             }
 
             scoredOffers.add(mapRecordToCardResponse(offer, score));
         }
 
-        // Sort by overall match score descending, then by remaining days ascending
-        scoredOffers.sort((a, b) -> {
-            int scoreCmp = Integer.compare(b.score().overallScore(), a.score().overallScore());
-            if (scoreCmp != 0) return scoreCmp;
-            return Long.compare(a.daysRemaining(), b.daysRemaining());
-        });
+        // Sort: "MAY_BE_CLOSED" always sinks to the bottom
+        java.util.Comparator<OfferCardResponse> statusComparator = (a, b) -> {
+            boolean aMay = a.isMayBeClosed();
+            boolean bMay = b.isMayBeClosed();
+            return Boolean.compare(aMay, bMay);
+        };
+
+        if ("closesSoon".equalsIgnoreCase(sortBy)) {
+            scoredOffers.sort(statusComparator.thenComparing((a, b) -> {
+                int cmp = Long.compare(a.daysRemaining(), b.daysRemaining());
+                if (cmp != 0)
+                    return cmp;
+                return Integer.compare(b.score().overallScore(), a.score().overallScore());
+            }));
+        } else {
+            // Default: "MAY_BE_CLOSED" at bottom, then overall match score desc, then
+            // remaining days asc
+            scoredOffers.sort(statusComparator.thenComparing((a, b) -> {
+                int scoreCmp = Integer.compare(b.score().overallScore(), a.score().overallScore());
+                if (scoreCmp != 0)
+                    return scoreCmp;
+                return Long.compare(a.daysRemaining(), b.daysRemaining());
+            }));
+        }
+
+        String joobleKey = System.getenv("JOOBLE_API_KEY");
+        boolean hasJooble = joobleKey != null && !joobleKey.isBlank();
+        boolean hasActiveCareerSources = offerDao.hasActiveExternalSources();
+        boolean externalSourcesConfigured = hasJooble || hasActiveCareerSources;
+        String externalSourcesMissingReason = externalSourcesConfigured
+                ? null
+                : "No live external source connected. JOOBLE_API_KEY is not configured and no active approved CareerPageSource is registered.";
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("offers", scoredOffers);
         resp.put("totalCount", scoredOffers.size());
+        resp.put("externalSourcesConfigured", externalSourcesConfigured);
+        if (externalSourcesMissingReason != null) {
+            resp.put("externalSourcesMissingReason", externalSourcesMissingReason);
+        }
         if (parsedQuery != null) {
             resp.put("parsedQuery", parsedQuery);
         }
@@ -191,7 +201,8 @@ public final class OfferHandler {
     }
 
     public HttpResponse parseQuery(RequestContext ctx) throws Exception {
-        record ParseReq(String query) {}
+        record ParseReq(String query) {
+        }
         ParseReq req = ctx.parseJsonBody(ParseReq.class);
         ParsedQueryResponse parsed = queryParserService.parse(req.query());
         return HttpResponse.ok(parsed);
@@ -221,6 +232,7 @@ public final class OfferHandler {
 
         OfferCardResponse bestMatchToday = !scoredOffers.isEmpty() ? scoredOffers.get(0) : null;
         List<OfferCardResponse> recommended = scoredOffers.stream().skip(1).limit(4).collect(Collectors.toList());
+        List<WeeklyActionItem> weeklyActions = offerDao.getWeeklyActionsForStudent(profileId);
 
         StudentHomeResponse home = new StudentHomeResponse(
                 profile != null ? profile.fullName() : auth.user().email(),
@@ -230,13 +242,109 @@ public final class OfferHandler {
                 appCounts.getOrDefault("inReview", 0),
                 appCounts.getOrDefault("interview", 0),
                 bestMatchToday,
-                recommended
-        );
+                recommended,
+                weeklyActions);
 
         return HttpResponse.ok(home);
     }
 
+    public HttpResponse applyToOffer(RequestContext ctx) throws Exception {
+        AuthContext auth = ctx.getAttribute(AuthMiddleware.AUTH_ATTRIBUTE);
+        if (auth == null || auth.user() == null) {
+            return HttpResponse.unauthorized("Authentication required");
+        }
+
+        StudentFullProfile profile = studentProfileDao.findFullProfileByUserId(auth.getUserId()).orElse(null);
+        if (profile == null) {
+            return HttpResponse.badRequest("Student profile not found. Please complete profile first.");
+        }
+
+        ApplyOfferRequest req = ctx.parseJsonBody(ApplyOfferRequest.class);
+        if (req == null || req.offerId() == null) {
+            return HttpResponse.badRequest("offerId is required");
+        }
+
+        UUID offerId;
+        try {
+            offerId = UUID.fromString(req.offerId());
+        } catch (IllegalArgumentException e) {
+            return HttpResponse.badRequest("Invalid offer ID format");
+        }
+
+        boolean isManual = Boolean.TRUE.equals(req.isManualExternal());
+        boolean confirmed = Boolean.TRUE.equals(req.confirmed());
+
+        // For internal offers: explicit confirmation is required
+        if (!isManual && !confirmed) {
+            return HttpResponse.badRequest("Explicit confirmation is required before applying with Fitwell.");
+        }
+
+        var application = offerDao.submitApplication(profile.id(), offerId, req.coverLetter(), isManual, confirmed);
+
+        String msg = isManual
+                ? "External application tracking recorded in Applications"
+                : "Application submitted successfully via Fitwell";
+
+        return HttpResponse.created(Map.of(
+                "message", msg,
+                "application", application));
+    }
+
+    public HttpResponse verifyOfferLink(RequestContext ctx) throws Exception {
+        String idStr = ctx.getPathParam("id");
+        UUID offerId;
+        try {
+            offerId = UUID.fromString(idStr);
+        } catch (IllegalArgumentException e) {
+            return HttpResponse.badRequest("Invalid offer ID format");
+        }
+
+        Optional<OfferRecord> offerOpt = offerDao.findOfferById(offerId);
+        if (offerOpt.isEmpty()) {
+            return HttpResponse.notFound("Offer not found");
+        }
+
+        OfferRecord offer = offerOpt.get();
+        if (!"SOURCED".equalsIgnoreCase(offer.origin()) || offer.sourceUrl() == null || offer.sourceUrl().isBlank()) {
+            return HttpResponse.ok(Map.of(
+                    "alive", true,
+                    "status", offer.status(),
+                    "sourceUrl", offer.sourceUrl() != null ? offer.sourceUrl() : ""));
+        }
+
+        var verification = linkVerifier.verify(offer.sourceUrl());
+        if (!verification.alive()) {
+            offerDao.markOfferDead(offerId, LocalDate.now(offerDao.getClock()));
+            return HttpResponse.ok(Map.of(
+                    "alive", false,
+                    "status", "MAY_BE_CLOSED",
+                    "reason", verification.reason(),
+                    "sourceUrl", offer.sourceUrl()));
+        }
+
+        return HttpResponse.ok(Map.of(
+                "alive", true,
+                "status", offer.status(),
+                "sourceUrl", offer.sourceUrl()));
+    }
+
+    public HttpResponse getMyApplications(RequestContext ctx) throws Exception {
+        AuthContext auth = ctx.getAttribute(AuthMiddleware.AUTH_ATTRIBUTE);
+        if (auth == null || auth.user() == null) {
+            return HttpResponse.unauthorized("Authentication required");
+        }
+
+        StudentFullProfile profile = studentProfileDao.findFullProfileByUserId(auth.getUserId()).orElse(null);
+        if (profile == null) {
+            return HttpResponse.ok(Map.of("applications", List.of()));
+        }
+
+        List<OfferDao.StudentApplicationItem> apps = offerDao.getStudentApplicationsList(profile.id());
+        return HttpResponse.ok(Map.of("applications", apps));
+    }
+
     private OfferCardResponse mapRecordToCardResponse(OfferRecord o, ScoreBreakdown score) {
+        boolean isMayBeClosed = "MAY_BE_CLOSED".equalsIgnoreCase(o.status());
         return new OfferCardResponse(
                 o.id(),
                 o.labId(),
@@ -255,15 +363,19 @@ public final class OfferHandler {
                 o.places(),
                 o.status(),
                 o.origin(),
+                o.sourceName(),
+                o.sourceUrl(),
                 o.closesAt(),
                 o.daysRemaining(),
                 o.skills(),
-                score
-        );
+                score,
+                o.displayDate(),
+                isMayBeClosed);
     }
 
     private String hashIp(String ip) {
-        if (ip == null) return "unknown";
+        if (ip == null)
+            return "unknown";
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] digest = md.digest(ip.getBytes(StandardCharsets.UTF_8));
@@ -277,4 +389,3 @@ public final class OfferHandler {
         }
     }
 }
-

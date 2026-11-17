@@ -4,7 +4,6 @@ import com.fitwell.model.entity.User;
 import com.fitwell.model.enums.LabRole;
 import com.fitwell.model.enums.Role;
 
-import java.util.Optional;
 import java.util.UUID;
 
 public record AuthContext(

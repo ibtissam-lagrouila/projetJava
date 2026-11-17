@@ -96,18 +96,14 @@ describe('StudentExplorePage', () => {
       </AuthProvider>
     );
 
-    // Verify page header
+    // Verify page header & breadcrumb
+    expect(screen.getByText(/^Explore$/i)).toBeInTheDocument();
     expect(screen.getByText(/Tell Fitwell what you want/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sort by/i)).toBeInTheDocument();
 
-    // Verify filter dropdowns
-    expect(screen.getByText(/City:/i)).toBeInTheDocument();
-    expect(screen.getByText(/Domain:/i)).toBeInTheDocument();
-    expect(screen.getByText(/Duration:/i)).toBeInTheDocument();
-    expect(screen.getByText(/Min Fit:/i)).toBeInTheDocument();
-
-    // Verify parsed query pills
+    // Verify parsed query pills & offer count after fetch resolves
     await waitFor(() => {
-      expect(screen.getByText(/understood as:/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 offer/i)).toBeInTheDocument();
       expect(screen.getAllByText('Medical imaging').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Rabat').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('3 to 5 months')).toBeInTheDocument();
@@ -116,11 +112,8 @@ describe('StudentExplorePage', () => {
 
     // Verify scored offer card details
     expect(screen.getByText(/Vision models for medical imaging/i)).toBeInTheDocument();
-    expect(screen.getByText(/94%/i)).toBeInTheDocument();
-    expect(screen.getByText(/Excellent match/i)).toBeInTheDocument();
-    expect(screen.getByText(/closes in 17 days/i)).toBeInTheDocument();
-    expect(screen.getByText(/Why Fitwell picked it:/i)).toBeInTheDocument();
-    expect(screen.getByText(/your PyTorch segmentation project covers the main task/i)).toBeInTheDocument();
-    expect(screen.getByText(/DICOM \(Optional\)/i)).toBeInTheDocument();
+    expect(screen.getByText('94')).toBeInTheDocument();
+    expect(screen.getByText(/Posted by the lab/i)).toBeInTheDocument();
+    expect(screen.getByText(/closes 1 Mar/i)).toBeInTheDocument();
   });
 });

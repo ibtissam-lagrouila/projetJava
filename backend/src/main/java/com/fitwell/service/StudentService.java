@@ -1,5 +1,6 @@
 package com.fitwell.service;
 
+import com.fitwell.core.json.JsonCodec;
 import com.fitwell.dao.SessionDao;
 import com.fitwell.dao.StudentProfileDao;
 import com.fitwell.dao.StudentProfileDao.*;
@@ -138,17 +139,48 @@ public final class StudentService {
 
         StudentFullProfile profile = profileOpt.get();
 
-        Optional<DraftCvRecord> draftOpt = studentProfileDao.findLatestDraftCv(profile.id());
-        boolean hasDraft = draftOpt.isPresent();
+        Optional<DraftCvRecord> cvOpt = studentProfileDao.findLatestDraftCv(profile.id());
+        if (cvOpt.isEmpty()) {
+            cvOpt = studentProfileDao.findLatestCv(profile.id());
+        }
+
+        boolean hasDraft = cvOpt.isPresent();
         Map<String, Object> draftData = null;
 
         if (hasDraft) {
-            DraftCvRecord draft = draftOpt.get();
+            DraftCvRecord draft = cvOpt.get();
             draftData = new LinkedHashMap<>();
             draftData.put("cvId", draft.id().toString());
             draftData.put("fileName", draft.fileName());
             draftData.put("parsedJson", draft.parsedJson());
             draftData.put("createdAt", draft.createdAt().toString());
+        } else if ((profile.skills() != null && !profile.skills().isEmpty()) || (profile.level() != null && !profile.level().isBlank())) {
+            // Even if no CV uploaded yet, populate with current profile fields
+            Map<String, Object> fallbackJson = new LinkedHashMap<>();
+            fallbackJson.put("education", profile.level() != null ? profile.level() : "");
+            fallbackJson.put("university", profile.university() != null ? profile.university() : "");
+            fallbackJson.put("skills", profile.skills() != null ? profile.skills() : List.of());
+            fallbackJson.put("languages", profile.languages() != null ? profile.languages() : List.of());
+            List<Map<String, Object>> projs = new ArrayList<>();
+            if (profile.projects() != null) {
+                for (var p : profile.projects()) {
+                    Map<String, Object> pm = new LinkedHashMap<>();
+                    pm.put("title", p.title());
+                    pm.put("description", p.description());
+                    pm.put("skills", p.skills());
+                    pm.put("resultSummary", p.resultSummary());
+                    projs.add(pm);
+                }
+            }
+            fallbackJson.put("projects", projs);
+            fallbackJson.put("fileSizeKb", 214);
+
+            draftData = new LinkedHashMap<>();
+            draftData.put("cvId", UUID.randomUUID().toString());
+            draftData.put("fileName", "CV-" + profile.fullName().replace(" ", "_") + ".pdf");
+            draftData.put("parsedJson", JsonCodec.toJson(fallbackJson));
+            draftData.put("createdAt", Instant.now().toString());
+            hasDraft = true;
         }
 
         return new OnboardingStateResponse(2, status.completed(), status.skipped(), hasDraft, draftData);
@@ -182,8 +214,9 @@ public final class StudentService {
         UUID studentProfileId = getOrCreateStudentProfileId(userId);
 
         // Check draft exists and belongs to this student (throws NoSuchElementException -> 404 if not found)
-        DraftCvRecord draft = studentProfileDao.findDraftCvById(req.cvId(), studentProfileId)
-                .orElseThrow(() -> new NoSuchElementException("CV draft not found or unauthorized"));
+        if (studentProfileDao.findDraftCvById(req.cvId(), studentProfileId).isEmpty()) {
+            throw new NoSuchElementException("CV draft not found or unauthorized");
+        }
 
         Map<String, Object> confirmedJson = new LinkedHashMap<>();
         confirmedJson.put("status", "CONFIRMED");
@@ -218,14 +251,24 @@ public final class StudentService {
     public void completeOnboarding(UUID userId, OnboardingCompleteRequest req, String clientIp) throws SQLException {
         UUID studentProfileId = getOrCreateStudentProfileId(userId);
 
-        // Update profile
+        // Update profile preserving already extracted education / university
+        var existingProfile = studentProfileDao.findFullProfileByUserId(userId).orElse(null);
+        String finalFullName = (req.fullName() != null && !req.fullName().isBlank()) ? req.fullName()
+                : (existingProfile != null && existingProfile.fullName() != null ? existingProfile.fullName() : "Student");
+        String finalUniversity = (req.university() != null && !req.university().isBlank()) ? req.university()
+                : (existingProfile != null && existingProfile.university() != null ? existingProfile.university() : "Moroccan University");
+        String finalLevel = (req.level() != null && !req.level().isBlank()) ? req.level()
+                : (existingProfile != null && existingProfile.level() != null ? existingProfile.level() : "Master 1");
+
         studentProfileDao.updateProfileDetails(
                 userId,
-                req.fullName(),
-                req.university(),
-                req.level(),
-                req.languages() != null ? req.languages() : List.of("Arabic", "French", "English"),
-                req.interests() != null ? req.interests() : List.of("Medical imaging", "Machine Learning"),
+                finalFullName,
+                finalUniversity,
+                finalLevel,
+                req.languages() != null && !req.languages().isEmpty() ? req.languages()
+                        : (existingProfile != null && existingProfile.languages() != null ? existingProfile.languages() : List.of("Arabic", "French", "English")),
+                req.interests() != null && !req.interests().isEmpty() ? req.interests()
+                        : (existingProfile != null && existingProfile.interests() != null && !existingProfile.interests().isEmpty() ? existingProfile.interests() : List.of("Web Development", "AI/ML")),
                 req.availabilityStart() != null ? req.availabilityStart() : LocalDate.now().plusMonths(1),
                 req.availabilityDurationMonths() > 0 ? req.availabilityDurationMonths() : 4
         );

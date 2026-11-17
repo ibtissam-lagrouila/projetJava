@@ -231,10 +231,11 @@ public final class AuthService {
         boolean onboardingCompleted = true;
         boolean onboardingSkipped = false;
 
+        String level = "Master";
         if (user.role() == Role.STUDENT) {
-            fullName = studentProfileDao.findByUserId(user.id())
-                    .map(StudentProfileDao.StudentProfileInfo::fullName)
-                    .orElse(user.email());
+            var profileOpt = studentProfileDao.findByUserId(user.id());
+            fullName = profileOpt.map(StudentProfileDao.StudentProfileInfo::fullName).orElse(user.email());
+            level = profileOpt.map(StudentProfileDao.StudentProfileInfo::level).orElse("Master");
             StudentProfileDao.OnboardingStatus status = studentProfileDao.getOnboardingStatus(user.id());
             onboardingCompleted = status.completed() || status.skipped();
             onboardingSkipped = status.skipped();
@@ -250,7 +251,7 @@ public final class AuthService {
             isLabApproved = true;
         }
 
-        return createSessionResponse(user, fullName, labId, isLabApproved, onboardingCompleted, onboardingSkipped);
+        return createSessionResponse(user, fullName, level, labId, isLabApproved, onboardingCompleted, onboardingSkipped);
     }
 
     public MessageResponse verifyEmail(String rawToken, String clientIp) throws SQLException {
@@ -346,7 +347,7 @@ public final class AuthService {
         return new MessageResponse("Password has been successfully updated. Please sign in with your new password.");
     }
 
-    private AuthResponse createSessionResponse(User user, String fullName, UUID labId, boolean isLabApproved, boolean onboardingCompleted, boolean onboardingSkipped) throws SQLException {
+    private AuthResponse createSessionResponse(User user, String fullName, String level, UUID labId, boolean isLabApproved, boolean onboardingCompleted, boolean onboardingSkipped) throws SQLException {
         String rawToken = TokenGenerator.generateToken();
         String tokenHash = TokenGenerator.hashToken(rawToken);
         Instant expiresAt = Instant.now().plus(SESSION_DURATION);
@@ -366,6 +367,7 @@ public final class AuthService {
                 user.role(),
                 user.isEmailVerified(),
                 fullName != null ? fullName : user.email(),
+                level != null ? level : "Master",
                 labId,
                 isLabApproved,
                 onboardingCompleted,

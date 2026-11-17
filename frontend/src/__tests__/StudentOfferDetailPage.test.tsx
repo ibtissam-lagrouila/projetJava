@@ -102,7 +102,7 @@ describe('StudentOfferDetailPage', () => {
     // Verify Law 09-08 notice
     expect(screen.getByText(/Moroccan Law 09-08 Safeguard:/i)).toBeInTheDocument();
 
-    // Verify Apply button
-    expect(screen.getByRole('button', { name: /Start application/i })).toBeInTheDocument();
+    // Verify Apply with Fitwell button
+    expect(screen.getByRole('button', { name: /Apply with Fitwell/i })).toBeInTheDocument();
   });
 });

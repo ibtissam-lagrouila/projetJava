@@ -1,15 +1,10 @@
 package com.fitwell.core.http;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class Router {
-
-    private static final Logger log = LoggerFactory.getLogger(Router.class);
 
     private final List<RouteEntry> routes = new ArrayList<>();
     private final List<Middleware> globalMiddlewares = new ArrayList<>();

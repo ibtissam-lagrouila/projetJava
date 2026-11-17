@@ -6,6 +6,7 @@ export interface User {
   role: Role;
   emailVerified: boolean;
   fullName: string;
+  level?: string;
   labId?: string;
   isLabApproved?: boolean;
   onboardingCompleted?: boolean;

@@ -1,0 +1,7 @@
+User-agent: FitwellBot
+Crawl-delay: 8
+Disallow: /internal/
+
+User-agent: *
+Crawl-delay: 2
+Disallow: /private/

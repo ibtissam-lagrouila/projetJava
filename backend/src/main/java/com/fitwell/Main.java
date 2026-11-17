@@ -1,5 +1,6 @@
 package com.fitwell;
 
+import com.fitwell.api.admin.SourceHandler;
 import com.fitwell.api.auth.AuthHandler;
 import com.fitwell.api.student.StudentHandler;
 import com.fitwell.core.db.ConnectionPool;
@@ -7,23 +8,23 @@ import com.fitwell.core.db.DatabaseConfig;
 import com.fitwell.core.db.Migrator;
 import com.fitwell.core.http.HttpResponse;
 import com.fitwell.core.http.HttpServerApp;
-import com.fitwell.core.http.HttpStatus;
 import com.fitwell.core.http.Router;
 import com.fitwell.core.middleware.*;
 import com.fitwell.core.security.AuthContext;
 import com.fitwell.dao.*;
 import com.fitwell.model.enums.Role;
-import com.fitwell.service.AuditService;
-import com.fitwell.service.AuthService;
-import com.fitwell.service.CvExtractorService;
-import com.fitwell.service.DevSeedService;
-import com.fitwell.service.MatchingService;
-import com.fitwell.service.QueryParserService;
-import com.fitwell.service.StudentService;
+import com.fitwell.service.*;
+import com.fitwell.service.sourcing.CareerPageCrawlerService;
+import com.fitwell.service.sourcing.CareerPageExtractor;
+import com.fitwell.service.sourcing.RobotsTxtService;
+import com.fitwell.service.sourcing.model.SourceRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public final class Main {
 
@@ -63,6 +64,8 @@ public final class Main {
             AuditLogDao auditLogDao = new AuditLogDao(pool);
             BadgeDao badgeDao = new BadgeDao(pool);
             OfferDao offerDao = new OfferDao(pool);
+            SourceDao sourceDao = new SourceDao(pool);
+            ValidationDao validationDao = new ValidationDao(pool);
 
             // Services
             String uploadDir = System.getenv().getOrDefault("UPLOAD_DIR", "./uploads");
@@ -75,11 +78,20 @@ public final class Main {
             MatchingService matchingService = new MatchingService();
             QueryParserService queryParserService = new QueryParserService();
 
+            RobotsTxtService robotsTxtService = new RobotsTxtService();
+            CareerPageExtractor careerPageExtractor = new CareerPageExtractor();
+            CareerPageCrawlerService crawlerService = new CareerPageCrawlerService(
+                    sourceDao, validationDao, offerDao, robotsTxtService, careerPageExtractor
+            );
+
             // Handlers
             AuthHandler authHandler = new AuthHandler(authService, labDao, studentProfileDao, allowedUniversityDao);
             StudentHandler studentHandler = new StudentHandler(studentService, uploadDir);
             com.fitwell.api.student.OfferHandler offerHandler = new com.fitwell.api.student.OfferHandler(
                     offerDao, studentProfileDao, matchingService, queryParserService
+            );
+            SourceHandler sourceHandler = new SourceHandler(
+                    sourceDao, validationDao, offerDao, robotsTxtService, crawlerService
             );
 
             // Router & Middlewares
@@ -141,8 +153,11 @@ public final class Main {
             // Phase 3: Student Offer Exploration & Deterministic Matching Engine
             router.get("/api/student/offers", offerHandler::getOffers, studentGuard);
             router.get("/api/student/offers/{id}", offerHandler::getOfferById, studentGuard);
+            router.post("/api/student/offers/{id}/verify-link", offerHandler::verifyOfferLink, studentGuard);
             router.post("/api/student/parse-query", offerHandler::parseQuery, studentGuard);
             router.get("/api/student/home", offerHandler::getStudentHome, studentGuard);
+            router.post("/api/student/applications", offerHandler::applyToOffer, studentGuard);
+            router.get("/api/student/applications", offerHandler::getMyApplications, studentGuard);
 
             // Protected role-based route placeholders (tested in Phase 1A authorization tests)
             router.get("/api/student/dashboard", ctx -> HttpResponse.ok(Map.of("message", "Welcome to Student Space")),
@@ -167,20 +182,49 @@ public final class Main {
                 return HttpResponse.ok(List.of());
             }, new RoleGuardMiddleware(Role.LAB));
 
+            RoleGuardMiddleware adminGuard = new RoleGuardMiddleware(Role.ADMIN);
             router.get("/api/admin/overview", ctx -> HttpResponse.ok(Map.of("message", "Welcome to Admin Space")),
-                    new RoleGuardMiddleware(Role.ADMIN));
+                    adminGuard);
+
+            // Phase C: CareerPageSource Connector Admin Endpoints
+            router.get("/api/admin/sources", sourceHandler::getSources, adminGuard);
+            router.post("/api/admin/sources", sourceHandler::createSource, adminGuard);
+            router.post("/api/admin/sources/check-robots", sourceHandler::checkRobots, adminGuard);
+            router.post("/api/admin/sources/test-sample", sourceHandler::testSample, adminGuard);
+            router.put("/api/admin/sources/{id}/allow", sourceHandler::toggleAllow, adminGuard);
+            router.post("/api/admin/sources/{id}/crawl", sourceHandler::crawlSource, adminGuard);
+            router.get("/api/admin/validation-queue", sourceHandler::getValidationQueue, adminGuard);
+            router.post("/api/admin/validation-queue/{id}/approve", sourceHandler::approveValidationItem, adminGuard);
+            router.post("/api/admin/validation-queue/{id}/reject", sourceHandler::rejectValidationItem, adminGuard);
 
             router.post("/api/admin/labs-claims/{id}/approve", ctx -> {
                 String labIdStr = ctx.getPathParam("id");
                 UUID labId = UUID.fromString(labIdStr);
                 labDao.approveLab(labId);
                 return HttpResponse.ok(Map.of("status", "APPROVED", "labId", labId.toString()));
-            }, new RoleGuardMiddleware(Role.ADMIN));
+            }, adminGuard);
+
+            // Nightly scheduled job for allowed sources & offer liveness check (runs in background)
+            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+            scheduler.scheduleAtFixedRate(() -> {
+                log.info("Starting nightly automated sourcing run for allowed sources...");
+                try {
+                    List<SourceRecord> sources = sourceDao.findAll();
+                    for (SourceRecord s : sources) {
+                        if (s.isAllowed()) {
+                            crawlerService.crawlSource(s.id());
+                        }
+                    }
+                    int livenessChecked = crawlerService.checkOffersLiveness();
+                    log.info("Nightly sourcing run completed. Checked liveness for {} offers.", livenessChecked);
+                } catch (Exception e) {
+                    log.error("Error during nightly automated sourcing crawl: {}", e.getMessage(), e);
+                }
+            }, 6, 24, TimeUnit.HOURS);
 
             // Example of strict privacy ownership rule:
             // "Réponds 404 (pas 403) pour les ressources d'autrui"
             router.get("/api/lab/applications/{id}", ctx -> {
-                AuthContext auth = ctx.getAttribute(AuthMiddleware.AUTH_ATTRIBUTE);
                 String appId = ctx.getPathParam("id");
                 // In demo test: only application matching specific owned ID is accessible;
                 // others return 404 (Not Found) to avoid disclosing existence of other candidates
@@ -196,6 +240,7 @@ public final class Main {
 
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("Shutdown signal received");
+                scheduler.shutdown();
                 app.stop();
                 pool.close();
             }));

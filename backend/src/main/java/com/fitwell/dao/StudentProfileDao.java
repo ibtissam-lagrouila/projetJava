@@ -273,6 +273,35 @@ public final class StudentProfileDao {
         return Optional.empty();
     }
 
+    public Optional<DraftCvRecord> findLatestCv(UUID studentId) throws SQLException {
+        String sql = """
+            SELECT id, student_id, file_name, file_path, raw_text, parsed_json::text, created_at
+            FROM cvs
+            WHERE student_id = ?
+            ORDER BY created_at DESC LIMIT 1
+        """;
+        Connection conn = pool.acquire();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setObject(1, studentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(new DraftCvRecord(
+                            (UUID) rs.getObject("id"),
+                            (UUID) rs.getObject("student_id"),
+                            rs.getString("file_name"),
+                            rs.getString("file_path"),
+                            rs.getString("raw_text"),
+                            rs.getString("parsed_json"),
+                            rs.getTimestamp("created_at")
+                    ));
+                }
+            }
+        } finally {
+            pool.release(conn);
+        }
+        return Optional.empty();
+    }
+
     public Optional<DraftCvRecord> findDraftCvById(UUID cvId, UUID studentId) throws SQLException {
         String sql = """
             SELECT id, student_id, file_name, file_path, raw_text, parsed_json::text, created_at

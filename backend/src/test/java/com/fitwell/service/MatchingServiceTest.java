@@ -42,6 +42,7 @@ public class MatchingServiceTest {
                 6, now.plusMonths(1), "Rabat", "Funded", "Gratification mensuelle",
                 "Train segmentation models on annotated microscopy images.",
                 List.of("Build dataset", "Train models"), 2, "PUBLISHED", "LAB_POSTED",
+                null, null,
                 now.plusDays(17), 17, offerSkills
         );
 
@@ -100,6 +101,7 @@ public class MatchingServiceTest {
                 "Gene expression analysis", "Genomics & Bioinformatics",
                 4, now.plusMonths(1), "Fès", "Funded", "Paid",
                 "RNA-seq analysis", List.of("Run pipeline"), 1, "PUBLISHED", "LAB_POSTED",
+                null, null,
                 now.plusDays(30), 30, offerSkills
         );
 
@@ -139,6 +141,7 @@ public class MatchingServiceTest {
                 "Deep Learning", "Artificial Intelligence",
                 4, now, "Rabat", "Funded", null,
                 "DL models", List.of("Task 1"), 1, "PUBLISHED", "LAB_POSTED",
+                null, null,
                 now.plusDays(10), 10, offerSkills
         );
 
@@ -175,6 +178,7 @@ public class MatchingServiceTest {
                 "Title", "General Domain",
                 4, now, "City", "Funded", null,
                 "Desc", List.of(), 1, "PUBLISHED", "LAB_POSTED",
+                null, null,
                 now.plusDays(10), 10, List.of()
         );
 
