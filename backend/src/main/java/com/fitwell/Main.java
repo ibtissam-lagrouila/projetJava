@@ -95,8 +95,9 @@ public final class Main {
             SourceHandler sourceHandler = new SourceHandler(
                     sourceDao, validationDao, offerDao, robotsTxtService, crawlerService
             );
+            com.fitwell.dao.CandidateDao candidateDao = new com.fitwell.dao.CandidateDao(pool);
             com.fitwell.api.lab.LabHandler labHandler = new com.fitwell.api.lab.LabHandler(
-                    labDashboardService, labMemberDao
+                    labDashboardService, labMemberDao, labDao, offerDao, candidateDao
             );
 
             // Router & Middlewares
@@ -156,10 +157,11 @@ public final class Main {
             router.delete("/api/student/account", studentHandler::deleteAccount, studentGuard);
 
             // Phase 3: Student Offer Exploration & Deterministic Matching Engine
-            router.get("/api/student/offers", offerHandler::getOffers, studentGuard);
-            router.get("/api/student/offers/{id}", offerHandler::getOfferById, studentGuard);
-            router.post("/api/student/offers/{id}/verify-link", offerHandler::verifyOfferLink, studentGuard);
-            router.post("/api/student/parse-query", offerHandler::parseQuery, studentGuard);
+            RoleGuardMiddleware exploreGuard = new RoleGuardMiddleware(Role.STUDENT, Role.LAB, Role.ADMIN);
+            router.get("/api/student/offers", offerHandler::getOffers, exploreGuard);
+            router.get("/api/student/offers/{id}", offerHandler::getOfferById, exploreGuard);
+            router.post("/api/student/offers/{id}/verify-link", offerHandler::verifyOfferLink, exploreGuard);
+            router.post("/api/student/parse-query", offerHandler::parseQuery, exploreGuard);
             router.get("/api/student/home", offerHandler::getStudentHome, studentGuard);
             router.post("/api/student/applications", offerHandler::applyToOffer, studentGuard);
             router.get("/api/student/applications", offerHandler::getMyApplications, studentGuard);
@@ -171,22 +173,11 @@ public final class Main {
             RoleGuardMiddleware labGuard = new RoleGuardMiddleware(Role.LAB);
             router.get("/api/lab/dashboard", labHandler::getDashboard, labGuard);
             router.post("/api/lab/shortlist", labHandler::shortlistCandidates, labGuard);
+            router.get("/api/lab/offers", labHandler::getOffers, labGuard);
+            router.post("/api/lab/offers", labHandler::createOffer, labGuard);
 
-            router.post("/api/lab/offers", ctx -> {
-                AuthContext auth = ctx.getAttribute(AuthMiddleware.AUTH_ATTRIBUTE);
-                if (auth == null || auth.labId() == null || !labDao.isLabApproved(auth.labId())) {
-                    return HttpResponse.forbidden("Your lab request is pending approval. You cannot publish offers until verified.");
-                }
-                return HttpResponse.created(Map.of("message", "Offer published successfully"));
-            }, new RoleGuardMiddleware(Role.LAB));
-
-            router.get("/api/lab/candidates", ctx -> {
-                AuthContext auth = ctx.getAttribute(AuthMiddleware.AUTH_ATTRIBUTE);
-                if (auth == null || auth.labId() == null || !labDao.isLabApproved(auth.labId())) {
-                    return HttpResponse.forbidden("Your lab request is pending approval. You cannot view candidates until verified.");
-                }
-                return HttpResponse.ok(List.of());
-            }, new RoleGuardMiddleware(Role.LAB));
+            router.get("/api/lab/candidates", labHandler::getCandidates, labGuard);
+            router.put("/api/lab/applications/{id}/status", labHandler::updateApplicationStatus, labGuard);
 
             RoleGuardMiddleware adminGuard = new RoleGuardMiddleware(Role.ADMIN);
             router.get("/api/admin/overview", ctx -> HttpResponse.ok(Map.of("message", "Welcome to Admin Space")),

@@ -314,33 +314,24 @@ public final class DevSeedService {
     private UUID seedLab(Connection conn) throws SQLException {
         String email = "s.elidrissi@univ-fes.ma";
         UUID userId = getUserIdByEmail(conn, email);
-        if (userId != null)
-            return userId;
+        if (userId == null) {
+            userId = UUID.randomUUID();
+            String hash = PasswordHasher.hashPassword("LabSecure2026!");
+            String salt = hash.split("\\$")[2];
 
-        userId = UUID.randomUUID();
-        String hash = PasswordHasher.hashPassword("LabSecure2026!");
-        String salt = hash.split("\\$")[2];
-
-        String userSql = "INSERT INTO users (id, email, password_hash, salt, role, email_verified_at, is_active) VALUES (?, ?, ?, ?, 'LAB', CURRENT_TIMESTAMP, TRUE)";
-        try (PreparedStatement ps = conn.prepareStatement(userSql)) {
-            ps.setObject(1, userId);
-            ps.setString(2, email);
-            ps.setString(3, hash);
-            ps.setString(4, salt);
-            ps.executeUpdate();
+            String userSql = "INSERT INTO users (id, email, password_hash, salt, role, email_verified_at, is_active) VALUES (?, ?, ?, ?, 'LAB', CURRENT_TIMESTAMP, TRUE)";
+            try (PreparedStatement ps = conn.prepareStatement(userSql)) {
+                ps.setObject(1, userId);
+                ps.setString(2, email);
+                ps.setString(3, hash);
+                ps.setString(4, salt);
+                ps.executeUpdate();
+            }
         }
 
-        UUID labId = UUID.randomUUID();
-        String labSql = """
-                    INSERT INTO labs (id, name, university_entity, city, domain, website, verified)
-                    VALUES (?, 'Genomics Unit, Fès', 'Faculté de Médecine et de Pharmacie de Fès', 'Fès', 'Genomics & Bioinformatics', 'http://genomics.univ-fes.ma', TRUE)
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(labSql)) {
-            ps.setObject(1, labId);
-            ps.executeUpdate();
-        }
+        UUID labId = getOrCreateLab(conn, "Genomics Unit", "Faculté de Médecine et de Pharmacie de Fès", "Fès", "Genomics & Bioinformatics");
 
-        String memberSql = "INSERT INTO lab_members (id, user_id, lab_id, role) VALUES (?, ?, ?, 'CEO')";
+        String memberSql = "INSERT INTO lab_members (id, user_id, lab_id, role) VALUES (?, ?, ?, 'CEO') ON CONFLICT (user_id, lab_id) DO NOTHING";
         try (PreparedStatement ps = conn.prepareStatement(memberSql)) {
             ps.setObject(1, UUID.randomUUID());
             ps.setObject(2, userId);
@@ -952,23 +943,12 @@ public final class DevSeedService {
                 uId = UUID.randomUUID();
                 String hash = PasswordHasher.hashPassword("StudentPass2026!");
                 String salt = hash.split("\\$")[2];
-                String uSql = "INSERT INTO users (id, email, password_hash, salt, role, full_name, level, university, email_verified_at, is_active) VALUES (?, ?, ?, ?, 'STUDENT', ?, ?, ?, CURRENT_TIMESTAMP, TRUE)";
+                String uSql = "INSERT INTO users (id, email, password_hash, salt, role, email_verified_at, is_active) VALUES (?, ?, ?, ?, 'STUDENT', CURRENT_TIMESTAMP, TRUE)";
                 try (PreparedStatement ps = conn.prepareStatement(uSql)) {
                     ps.setObject(1, uId);
                     ps.setString(2, spec.email());
                     ps.setString(3, hash);
                     ps.setString(4, salt);
-                    ps.setString(5, spec.name());
-                    ps.setString(6, spec.level());
-                    ps.setString(7, spec.univ());
-                    ps.executeUpdate();
-                }
-            } else {
-                try (PreparedStatement ps = conn.prepareStatement("UPDATE users SET full_name = ?, level = ?, university = ? WHERE id = ?")) {
-                    ps.setString(1, spec.name());
-                    ps.setString(2, spec.level());
-                    ps.setString(3, spec.univ());
-                    ps.setObject(4, uId);
                     ps.executeUpdate();
                 }
             }
@@ -982,13 +962,17 @@ public final class DevSeedService {
             }
             if (profId == null) {
                 profId = UUID.randomUUID();
-                String pSql = "INSERT INTO student_profiles (id, user_id, level, field_of_study, university_name, availability_start, availability_duration_months, cv_parsed) VALUES (?, ?, ?, ?, ?, '2026-03-01', 6, TRUE)";
+                String pSql = """
+                    INSERT INTO student_profiles (id, user_id, full_name, university, level, interests, availability_start, availability_duration_months)
+                    VALUES (?, ?, ?, ?, ?, ARRAY[?]::text[], '2026-03-01', 6)
+                """;
                 try (PreparedStatement ps = conn.prepareStatement(pSql)) {
                     ps.setObject(1, profId);
                     ps.setObject(2, uId);
-                    ps.setString(3, spec.level());
-                    ps.setString(4, spec.field());
-                    ps.setString(5, spec.univ());
+                    ps.setString(3, spec.name());
+                    ps.setString(4, spec.univ());
+                    ps.setString(5, spec.level());
+                    ps.setString(6, spec.field());
                     ps.executeUpdate();
                 }
             }

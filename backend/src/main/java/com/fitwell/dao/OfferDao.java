@@ -1,6 +1,7 @@
 package com.fitwell.dao;
 
 import com.fitwell.core.db.ConnectionPool;
+import com.fitwell.model.dto.OfferDtos.CreateLabOfferRequest;
 import com.fitwell.model.dto.OfferDtos.SkillItem;
 import com.fitwell.model.dto.OfferDtos.WeeklyActionItem;
 
@@ -727,5 +728,204 @@ public final class OfferDao {
             }
         }
         return map;
+    }
+
+    public UUID createLabOffer(UUID labId, CreateLabOfferRequest req) throws SQLException {
+        UUID offerId = UUID.randomUUID();
+        LocalDate today = LocalDate.now(clock);
+
+        // 1. Duration calculation
+        int durationMonths = 5;
+        if (req.durationMonths() != null && req.durationMonths() > 0) {
+            durationMonths = req.durationMonths();
+        } else if (req.duration() != null && !req.duration().isBlank()) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\d+").matcher(req.duration());
+            if (m.find()) {
+                try {
+                    durationMonths = Integer.parseInt(m.group());
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        // 2. Start date parsing
+        LocalDate start = null;
+        if (req.startDate() != null && !req.startDate().isBlank()) {
+            String sd = req.startDate().trim();
+            try {
+                start = LocalDate.parse(sd);
+            } catch (Exception e1) {
+                try {
+                    DateTimeFormatter dtf = new java.time.format.DateTimeFormatterBuilder()
+                            .parseCaseInsensitive()
+                            .appendPattern("[MMMM yyyy][MMM yyyy][MM/yyyy][yyyy-MM]")
+                            .parseDefaulting(java.time.temporal.ChronoField.DAY_OF_MONTH, 1)
+                            .toFormatter(Locale.ENGLISH);
+                    start = LocalDate.parse(sd, dtf);
+                } catch (Exception ignored) {
+                    start = today.plusMonths(2);
+                }
+            }
+        }
+        if (start == null) {
+            start = today.plusMonths(2);
+        }
+
+        LocalDate closesAt = (start.isAfter(today)) ? start : today.plusMonths(3);
+
+        String title = (req.title() != null && !req.title().isBlank()) ? req.title().trim() : "Research Internship";
+        String domain = (req.domain() != null && !req.domain().isBlank()) ? req.domain().trim() : "Biology";
+        String location = (req.location() != null && !req.location().isBlank()) ? req.location().trim() : "On site";
+        String compType = (req.compensationType() != null && !req.compensationType().isBlank()) ? req.compensationType().trim() : "Paid";
+        String compAmount = (req.compensationAmount() != null && !req.compensationAmount().isBlank()) ? req.compensationAmount().trim() : compType;
+
+        List<String> tasks = req.tasks() != null ? req.tasks() : List.of();
+        String description = (req.description() != null && !req.description().isBlank())
+                ? req.description().trim()
+                : (!tasks.isEmpty() ? tasks.get(0) : title);
+
+        String status = Boolean.TRUE.equals(req.isDraft()) ? "DRAFT" : "PUBLISHED";
+        String origin = "LAB_POSTED";
+        String contentHash;
+        try {
+            byte[] hashBytes = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((UUID.randomUUID() + ":" + title + ":" + labId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            contentHash = java.util.HexFormat.of().formatHex(hashBytes);
+        } catch (Exception e) {
+            contentHash = UUID.randomUUID().toString().replace("-", "");
+        }
+
+        String sql = """
+            INSERT INTO offers (id, lab_id, title, domain, duration_months, start_date, location,
+                                compensation_type, compensation_amount, description, tasks, places,
+                                status, origin, content_hash, closes_at, created_at, updated_at, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """;
+
+        Connection conn = pool.acquire();
+        try {
+            conn.setAutoCommit(false);
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setObject(1, offerId);
+                ps.setObject(2, labId);
+                ps.setString(3, title);
+                ps.setString(4, domain);
+                ps.setInt(5, durationMonths);
+                ps.setDate(6, java.sql.Date.valueOf(start));
+                ps.setString(7, location);
+                ps.setString(8, compType);
+                ps.setString(9, compAmount);
+                ps.setString(10, description);
+                ps.setArray(11, conn.createArrayOf("text", tasks.toArray(new String[0])));
+                ps.setString(12, status);
+                ps.setString(13, origin);
+                ps.setString(14, contentHash);
+                ps.setDate(15, java.sql.Date.valueOf(closesAt));
+                ps.executeUpdate();
+            }
+
+            if (req.skills() != null && !req.skills().isEmpty()) {
+                String insertSkillSql = """
+                    INSERT INTO skills (id, name, normalized_name, category)
+                    VALUES (uuid_generate_v4(), ?, ?, 'Technical')
+                    ON CONFLICT (normalized_name) DO NOTHING
+                """;
+                String linkSkillSql = """
+                    INSERT INTO offer_skills (offer_id, skill_id, is_required)
+                    SELECT ?, id, TRUE FROM skills WHERE normalized_name = ?
+                    ON CONFLICT DO NOTHING
+                """;
+
+                try (PreparedStatement psSkill = conn.prepareStatement(insertSkillSql);
+                     PreparedStatement psLink = conn.prepareStatement(linkSkillSql)) {
+                    for (String skillName : req.skills()) {
+                        if (skillName == null || skillName.isBlank()) continue;
+                        String trimmed = skillName.trim();
+                        String normalized = trimmed.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9+#.-]", "");
+                        if (normalized.isBlank()) normalized = trimmed.toLowerCase(Locale.ROOT);
+
+                        psSkill.setString(1, trimmed);
+                        psSkill.setString(2, normalized);
+                        psSkill.executeUpdate();
+
+                        psLink.setObject(1, offerId);
+                        psLink.setString(2, normalized);
+                        psLink.executeUpdate();
+                    }
+                }
+            }
+
+            conn.commit();
+            return offerId;
+        } catch (Exception e) {
+            conn.rollback();
+            throw new SQLException("Failed to create lab offer: " + e.getMessage(), e);
+        } finally {
+            conn.setAutoCommit(true);
+            pool.release(conn);
+        }
+    }
+
+    public record LabOfferItem(
+            UUID id,
+            String title,
+            String domain,
+            int durationMonths,
+            LocalDate startDate,
+            String location,
+            String compensationType,
+            String compensationAmount,
+            String status,
+            LocalDate closesAt,
+            Instant createdAt,
+            int applicationsCount,
+            List<String> skills
+    ) {}
+
+    public List<LabOfferItem> findOffersByLab(UUID labId) throws SQLException {
+        if (labId == null) return List.of();
+        String sql = """
+            SELECT o.id, o.title, o.domain, o.duration_months, o.start_date, o.location,
+                   o.compensation_type, o.compensation_amount, o.status, o.closes_at, o.created_at,
+                   (SELECT COUNT(*) FROM applications a WHERE a.offer_id = o.id) as applications_count
+            FROM offers o
+            WHERE o.lab_id = ?
+            ORDER BY o.created_at DESC
+        """;
+        List<LabOfferItem> list = new ArrayList<>();
+        Connection conn = pool.acquire();
+        try {
+            Map<UUID, List<SkillItem>> skillsMap = loadAllOfferSkills(conn);
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setObject(1, labId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        UUID id = (UUID) rs.getObject("id");
+                        List<String> skList = skillsMap.getOrDefault(id, List.of())
+                                .stream().map(SkillItem::name).toList();
+                        java.sql.Date stDate = rs.getDate("start_date");
+                        java.sql.Date clDate = rs.getDate("closes_at");
+                        Timestamp crTs = rs.getTimestamp("created_at");
+                        list.add(new LabOfferItem(
+                                id,
+                                rs.getString("title"),
+                                rs.getString("domain"),
+                                rs.getInt("duration_months"),
+                                stDate != null ? stDate.toLocalDate() : null,
+                                rs.getString("location"),
+                                rs.getString("compensation_type"),
+                                rs.getString("compensation_amount"),
+                                rs.getString("status"),
+                                clDate != null ? clDate.toLocalDate() : null,
+                                crTs != null ? crTs.toInstant() : Instant.now(),
+                                rs.getInt("applications_count"),
+                                skList
+                        ));
+                    }
+                }
+            }
+        } finally {
+            pool.release(conn);
+        }
+        return list;
     }
 }

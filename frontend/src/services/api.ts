@@ -39,26 +39,25 @@ class ApiService {
   }
 
   async getLabDashboard(labId?: string): Promise<import('../types').LabDashboardData | null> {
-    try {
-      const headers = this.getHeaders();
-      if (labId) {
-        headers['X-Lab-Id'] = labId;
-      }
-      const res = await fetch('/api/lab/dashboard', {
-        headers,
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        if (res.status === 403) {
-          const body = await res.json().catch(() => ({}));
-          return body as any;
-        }
-        return null;
-      }
-      return await res.json();
-    } catch {
-      return null;
+    const headers = this.getHeaders();
+    if (labId) {
+      headers['X-Lab-Id'] = labId;
     }
+    const res = await fetch('/api/lab/dashboard', {
+      headers,
+      credentials: 'include',
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (data && (data.status === 'PENDING' || data.status === 'REJECTED')) {
+        return data as any;
+      }
+      if (data && (data.error || data.message)) {
+        throw new Error(data.error || data.message);
+      }
+      throw new Error(`HTTP ${res.status}: Failed to load laboratory dashboard`);
+    }
+    return data;
   }
 
   async shortlistCandidates(applicationIds: string[], confirmed: boolean, labId?: string): Promise<{ message: string; shortlistedCount: number } | null> {
@@ -78,6 +77,92 @@ class ApiService {
     } catch {
       return null;
     }
+  }
+
+  async createLabOffer(payload: {
+    title: string;
+    domain: string;
+    durationMonths?: number;
+    duration?: string;
+    startDate?: string;
+    location: string;
+    compensationType: string;
+    compensationAmount?: string;
+    description: string;
+    tasks: string[];
+    skills: string[];
+    isDraft?: boolean;
+  }, labId?: string): Promise<{ id: string; message: string }> {
+    const headers = this.getHeaders();
+    if (labId) {
+      headers['X-Lab-Id'] = labId;
+    }
+    const res = await fetch('/api/lab/offers', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg = data?.error || data?.message || `HTTP ${res.status}: Failed to publish offer`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  async getLabOffers(labId?: string): Promise<any[]> {
+    try {
+      const headers = this.getHeaders();
+      if (labId) {
+        headers['X-Lab-Id'] = labId;
+      }
+      const res = await fetch('/api/lab/offers', {
+        headers,
+        credentials: 'include',
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
+  }
+
+  async getCandidates(offerId?: string, labId?: string): Promise<any> {
+    const headers = this.getHeaders();
+    if (labId) {
+      headers['X-Lab-Id'] = labId;
+    }
+    const query = offerId ? `?offerId=${encodeURIComponent(offerId)}` : '';
+    const res = await fetch(`/api/lab/candidates${query}`, {
+      headers,
+      credentials: 'include',
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg = data?.error || data?.message || `HTTP ${res.status}: Failed to load candidates`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  async updateApplicationStatus(applicationId: string, status: string, labId?: string): Promise<any> {
+    const headers = this.getHeaders();
+    if (labId) {
+      headers['X-Lab-Id'] = labId;
+    }
+    const res = await fetch(`/api/lab/applications/${encodeURIComponent(applicationId)}/status`, {
+      method: 'PUT',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg = data?.error || data?.message || `HTTP ${res.status}: Failed to update candidate status`;
+      throw new Error(msg);
+    }
+    return data;
   }
 
   async logout(): Promise<void> {

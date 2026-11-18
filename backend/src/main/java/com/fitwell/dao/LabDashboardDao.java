@@ -227,13 +227,13 @@ public final class LabDashboardDao {
     public List<RawApplicationCandidate> getUndecidedApplications(UUID labId, LocalDate today) throws SQLException {
         if (labId == null) return List.of();
         String sql = """
-            SELECT a.id as application_id, a.student_id, u.full_name as student_name,
-                   COALESCE(sp.level, u.level, 'Master') as student_level,
-                   COALESCE(sp.field_of_study, 'Science') as field_of_study,
-                   u.university, a.sent_at, a.status, a.profile_snapshot_json,
+            SELECT a.id as application_id, a.student_id, COALESCE(sp.full_name, u.email) as student_name,
+                   COALESCE(sp.level, 'Master') as student_level,
+                   COALESCE(array_to_string(sp.interests, ', '), 'Science') as field_of_study,
+                   COALESCE(sp.university, 'Université') as university, a.sent_at, a.status, a.profile_snapshot_json,
                    o.id as offer_id, o.title as offer_title, o.domain as offer_domain,
                    o.start_date as offer_start_date, o.duration_months as offer_duration_months,
-                   o.city as offer_city
+                   o.location as offer_city
             FROM applications a
             JOIN offers o ON a.offer_id = o.id
             JOIN student_profiles sp ON a.student_id = sp.id

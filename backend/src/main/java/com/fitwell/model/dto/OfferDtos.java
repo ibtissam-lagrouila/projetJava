@@ -126,5 +126,20 @@ public final class OfferDtos {
             Boolean isManualExternal,
             Boolean confirmed
     ) {}
+
+    public record CreateLabOfferRequest(
+            String title,
+            String domain,
+            Integer durationMonths,
+            String duration,
+            String startDate,
+            String location,
+            String compensationType,
+            String compensationAmount,
+            String description,
+            List<String> tasks,
+            List<String> skills,
+            Boolean isDraft
+    ) {}
 }
 

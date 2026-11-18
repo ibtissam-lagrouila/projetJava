@@ -36,7 +36,9 @@ public final class Migrator {
                     new MigrationScript(3, "V003__career_page_sourcing.sql", "/db/migrations/V003__career_page_sourcing.sql"),
                     new MigrationScript(4, "V004__demo_and_liveness_rules.sql", "/db/migrations/V004__demo_and_liveness_rules.sql"),
                     new MigrationScript(5, "V005__source_catalog.sql", "/db/migrations/V005__source_catalog.sql"),
-                    new MigrationScript(6, "V006__lab_dashboard_and_snapshots.sql", "/db/migrations/V006__lab_dashboard_and_snapshots.sql")
+                    new MigrationScript(6, "V006__lab_dashboard_and_snapshots.sql", "/db/migrations/V006__lab_dashboard_and_snapshots.sql"),
+                    new MigrationScript(7, "V007__ensure_genomics_lab_membership.sql", "/db/migrations/V007__ensure_genomics_lab_membership.sql"),
+                    new MigrationScript(8, "V008__lab_candidates_kanban.sql", "/db/migrations/V008__lab_candidates_kanban.sql")
             );
 
             for (MigrationScript script : scripts) {

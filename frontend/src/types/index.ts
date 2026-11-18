@@ -127,3 +127,50 @@ export const MOROCCAN_UNIVERSITIES = [
   'Université Sultan Moulay Slimane de Béni Mellal (USMS)',
 ];
 
+export interface KanbanCandidateItem {
+  id: string;
+  studentId: string;
+  offerId: string;
+  offerTitle: string;
+  studentName: string;
+  level: string;
+  fieldOfStudy: string;
+  university: string;
+  skills: string[];
+  matchScore: number;
+  status: string;
+  appliedAt: string;
+  lastActivityAt: string;
+  coverLetter?: string;
+}
+
+export interface LabOfferSummary {
+  offerId: string;
+  title: string;
+  candidateCount: number;
+}
+
+export interface KanbanColumns {
+  new: KanbanCandidateItem[];
+  shortlisted: KanbanCandidateItem[];
+  interview: KanbanCandidateItem[];
+  decision: KanbanCandidateItem[];
+}
+
+export interface KanbanCounts {
+  new: number;
+  shortlisted: number;
+  interview: number;
+  decision: number;
+  total: number;
+}
+
+export interface LabCandidatesResponse {
+  selectedOfferId: string | null;
+  selectedOfferTitle: string;
+  offers: LabOfferSummary[];
+  columns: KanbanColumns;
+  counts: KanbanCounts;
+}
+
+
