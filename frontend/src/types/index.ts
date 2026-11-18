@@ -28,6 +28,89 @@ export interface Badges {
   [key: string]: number | undefined;
 }
 
+export interface CandidateScoreBreakdown {
+  matchedSkills: string[];
+  missingSkills: string[];
+  skillsScore: number;
+  interestScore: number;
+  datesScore: number;
+  matchLabel: string;
+  explanation: string;
+}
+
+export interface TopCandidateItem {
+  applicationId: string;
+  studentId: string;
+  studentName: string;
+  initials: string;
+  educationLevel: string;
+  fieldOfStudy: string;
+  offerId: string;
+  offerTitle: string;
+  matchPercentage: number | null;
+  isLimitedData: boolean;
+  scoreBreakdown: CandidateScoreBreakdown;
+  appliedAt: string;
+  status: string;
+}
+
+export interface SuggestionItem {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  actionLabel: string;
+  actionType: string;
+  targetOfferId?: string;
+  candidateIds?: string[];
+  candidateNames?: string[];
+  targetUrl?: string;
+}
+
+export interface ThisMonthActivity {
+  views: number;
+  applied: number;
+  shortlisted: number;
+  interviews: number;
+  isAllZero: boolean;
+  viewsPct: number;
+  appliedPct: number;
+  shortlistedPct: number;
+  interviewsPct: number;
+}
+
+export interface DashboardCounters {
+  openOffers: number;
+  newApplicants: number;
+  toReview: number;
+  interviewsThisWeek: number;
+  awaitingConfirmation: number;
+}
+
+export interface AvailableLabItem {
+  labId: string;
+  labName: string;
+  city: string;
+  universityEntity: string;
+  role: string;
+  status: string;
+}
+
+export interface LabDashboardData {
+  greeting: string;
+  accountName: string;
+  labName: string;
+  city: string;
+  role: string;
+  activeLabId: string;
+  status: string;
+  availableLabs: AvailableLabItem[];
+  counters: DashboardCounters;
+  topCandidates: TopCandidateItem[];
+  suggestions: SuggestionItem[];
+  thisMonth: ThisMonthActivity;
+}
+
 export const MOROCCAN_UNIVERSITIES = [
   'Université Mohammed VI Polytechnique (UM6P)',
   'Université Mohammed V de Rabat (UM5)',

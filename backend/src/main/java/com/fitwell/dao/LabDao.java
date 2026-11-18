@@ -80,13 +80,13 @@ public final class LabDao {
 
     public boolean isLabApproved(UUID labId) throws SQLException {
         if (labId == null) return false;
-        String sql = "SELECT verified FROM labs WHERE id = ?";
+        String sql = "SELECT COALESCE(status, CASE WHEN verified THEN 'APPROVED' ELSE 'PENDING' END) as status FROM labs WHERE id = ?";
         Connection conn = pool.acquire();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setObject(1, labId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return rs.getBoolean("verified");
+                    return "APPROVED".equalsIgnoreCase(rs.getString("status"));
                 }
                 return false;
             }
@@ -95,8 +95,38 @@ public final class LabDao {
         }
     }
 
+    public String getLabStatus(UUID labId) throws SQLException {
+        if (labId == null) return "NOT_FOUND";
+        String sql = "SELECT COALESCE(status, CASE WHEN verified THEN 'APPROVED' ELSE 'PENDING' END) as status FROM labs WHERE id = ?";
+        Connection conn = pool.acquire();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setObject(1, labId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("status");
+                }
+                return "NOT_FOUND";
+            }
+        } finally {
+            pool.release(conn);
+        }
+    }
+
+    public void setLabStatus(UUID labId, String status) throws SQLException {
+        String sql = "UPDATE labs SET status = ?, verified = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+        Connection conn = pool.acquire();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status);
+            ps.setBoolean(2, "APPROVED".equalsIgnoreCase(status));
+            ps.setObject(3, labId);
+            ps.executeUpdate();
+        } finally {
+            pool.release(conn);
+        }
+    }
+
     public void approveLab(UUID labId) throws SQLException {
-        String labSql = "UPDATE labs SET verified = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+        String labSql = "UPDATE labs SET verified = TRUE, status = 'APPROVED', updated_at = CURRENT_TIMESTAMP WHERE id = ?";
         String claimSql = "UPDATE claim_requests SET status = 'APPROVED' WHERE lab_id = ?";
         Connection conn = pool.acquire();
         try {

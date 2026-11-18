@@ -58,6 +58,14 @@ export interface QueryPill {
   type: string;
 }
 
+export interface DeeplinkSource {
+  id: string;
+  name: string;
+  domain: string;
+  searchUrl: string;
+  notes?: string;
+}
+
 export interface ParsedQuery {
   rawQuery: string;
   city: string | null;
@@ -84,6 +92,8 @@ export const StudentExplorePage: React.FC = () => {
   const [parsedQuery, setParsedQuery] = useState<ParsedQuery | null>(null);
   const [externalSourcesConfigured, setExternalSourcesConfigured] = useState<boolean>(true);
   const [externalSourcesMissingReason, setExternalSourcesMissingReason] = useState<string | null>(null);
+  const [liveExternalSourceCount, setLiveExternalSourceCount] = useState<number>(0);
+  const [deeplinkSources, setDeeplinkSources] = useState<DeeplinkSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,6 +115,8 @@ export const StudentExplorePage: React.FC = () => {
       }
       const data = await res.json();
       setOffers(data.offers || []);
+      setDeeplinkSources(data.deeplinkSources || []);
+      setLiveExternalSourceCount(data.liveExternalSourceCount || 0);
       if (typeof data.externalSourcesConfigured === 'boolean') {
         setExternalSourcesConfigured(data.externalSourcesConfigured);
       }
@@ -331,6 +343,18 @@ export const StudentExplorePage: React.FC = () => {
         </div>
       </div>
 
+      {/* Live External Connectors Status Banner */}
+      {(!externalSourcesConfigured || liveExternalSourceCount === 0) && (
+        <div className="p-3.5 rounded-xl bg-[#FAF6F0] border border-[#C5AE90] text-xs text-[#66554D] flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <span className="text-amber-800 font-bold">No live external source connected:</span>
+            <span>
+              {externalSourcesMissingReason || 'No external career page crawler or Jooble API key is currently active.'} Displaying internal and verified platform offers only.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Error state */}
       {error && (
         <div className="p-4 rounded-xl bg-red-100 text-red-800 text-sm border border-red-200">
@@ -493,6 +517,41 @@ export const StudentExplorePage: React.FC = () => {
           );
         })}
       </div>
+
+      {/* Also search on external platforms (DEEPLINK sources: zero crawling, search links only) */}
+      {deeplinkSources.length > 0 && (
+        <div className="mt-8 p-6 rounded-2xl bg-[#DFCAAC]/50 border border-[#C5AE90] space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+            <div>
+              <h3 className="font-serif font-bold text-sm text-[#241814] flex items-center gap-2">
+                <span>Also search on</span>
+                <span className="text-[11px] font-normal text-[#66554D] bg-white/60 px-2 py-0.5 rounded-full border border-[#C5AE90]">
+                  Outbound verified search links
+                </span>
+              </h3>
+              <p className="text-xs text-[#66554D] mt-0.5">
+                Explore internship & job postings directly on partner sites for query "{query}". No CV or personal data is transmitted.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {deeplinkSources.map((dl) => (
+              <a
+                key={dl.id}
+                href={dl.searchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={dl.notes || `Search on ${dl.name}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 hover:bg-white text-xs font-semibold text-[#5B1421] border border-[#C5AE90] hover:border-[#5B1421] transition shadow-2xs"
+              >
+                <span>Search on {dl.name}</span>
+                <span className="text-stone-400 text-[11px]">↗</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

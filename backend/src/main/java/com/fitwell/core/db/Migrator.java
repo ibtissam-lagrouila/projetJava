@@ -34,7 +34,9 @@ public final class Migrator {
                     new MigrationScript(1, "V001__initial_schema.sql", "/db/migrations/V001__initial_schema.sql"),
                     new MigrationScript(2, "V002__onboarding_state.sql", "/db/migrations/V002__onboarding_state.sql"),
                     new MigrationScript(3, "V003__career_page_sourcing.sql", "/db/migrations/V003__career_page_sourcing.sql"),
-                    new MigrationScript(4, "V004__demo_and_liveness_rules.sql", "/db/migrations/V004__demo_and_liveness_rules.sql")
+                    new MigrationScript(4, "V004__demo_and_liveness_rules.sql", "/db/migrations/V004__demo_and_liveness_rules.sql"),
+                    new MigrationScript(5, "V005__source_catalog.sql", "/db/migrations/V005__source_catalog.sql"),
+                    new MigrationScript(6, "V006__lab_dashboard_and_snapshots.sql", "/db/migrations/V006__lab_dashboard_and_snapshots.sql")
             );
 
             for (MigrationScript script : scripts) {

@@ -91,6 +91,14 @@ public final class OfferDtos {
             List<QueryPill> pills
     ) {}
 
+    public record DeeplinkSourceItem(
+            String id,
+            String name,
+            String domain,
+            String searchUrl,
+            String notes
+    ) {}
+
     public record WeeklyActionItem(
             String id,
             String title,

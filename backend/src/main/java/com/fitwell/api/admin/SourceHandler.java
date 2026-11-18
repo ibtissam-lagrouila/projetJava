@@ -44,8 +44,13 @@ public class SourceHandler {
 
     public record CreateSourceReq(
             String name,
+            String domain,
+            String accessType,
             String url,
             String cguUrl,
+            String tosUrl,
+            String searchUrlTemplate,
+            String notes,
             String type,
             String cssSelectors,
             boolean autoPublish
@@ -59,20 +64,55 @@ public class SourceHandler {
         if (req.url() == null || req.url().isBlank()) {
             return HttpResponse.badRequest("Offers page URL is required");
         }
-        if (req.cguUrl() == null || req.cguUrl().isBlank()) {
-            return HttpResponse.badRequest("CGU (Terms of Service) URL is required");
+        String effectiveTosUrl = (req.tosUrl() != null && !req.tosUrl().isBlank())
+                ? req.tosUrl().trim()
+                : (req.cguUrl() != null ? req.cguUrl().trim() : null);
+
+        String accessType = (req.accessType() != null && !req.accessType().isBlank())
+                ? req.accessType().trim().toUpperCase()
+                : "CAREER_PAGE";
+
+        // Non-exempt types must have ToS URL
+        if (!"INTERNAL".equalsIgnoreCase(accessType) && !"DEEPLINK".equalsIgnoreCase(accessType)) {
+            if (effectiveTosUrl == null || effectiveTosUrl.isBlank()) {
+                return HttpResponse.badRequest("CGU / Terms of Service URL is required");
+            }
         }
 
         SourceRecord created = sourceDao.create(
                 req.name().trim(),
+                req.domain(),
+                accessType,
                 req.url().trim(),
-                req.cguUrl().trim(),
+                effectiveTosUrl,
+                req.searchUrlTemplate(),
+                req.notes(),
                 req.type() != null ? req.type() : "WEBSITE",
                 req.cssSelectors(),
                 req.autoPublish()
         );
 
         return HttpResponse.created(Map.of("message", "Source created successfully", "source", created));
+    }
+
+    public record UpdateSourceReq(
+            String tosUrl,
+            String searchUrlTemplate,
+            String notes
+    ) {}
+
+    public HttpResponse updateSource(RequestContext ctx) throws Exception {
+        String idStr = ctx.getPathParam("id");
+        UUID id = UUID.fromString(idStr);
+        UpdateSourceReq req = ctx.parseJsonBody(UpdateSourceReq.class);
+
+        Optional<SourceRecord> opt = sourceDao.findById(id);
+        if (opt.isEmpty()) {
+            return HttpResponse.notFound("Source not found");
+        }
+
+        sourceDao.updateDetails(id, req.tosUrl(), req.searchUrlTemplate(), req.notes());
+        return HttpResponse.ok(Map.of("message", "Source updated successfully"));
     }
 
     public record CheckRobotsReq(String url) {}
@@ -84,6 +124,30 @@ public class SourceHandler {
         }
 
         RobotsCheckResult result = robotsTxtService.checkUrl(req.url().trim());
+        return HttpResponse.ok(Map.of(
+                "allowed", result.allowed(),
+                "crawlDelaySeconds", result.crawlDelaySeconds(),
+                "status", result.robotsStatus(),
+                "message", result.message()
+        ));
+    }
+
+    public HttpResponse checkRobotsForExistingSource(RequestContext ctx) throws Exception {
+        String idStr = ctx.getPathParam("id");
+        UUID id = UUID.fromString(idStr);
+
+        Optional<SourceRecord> opt = sourceDao.findById(id);
+        if (opt.isEmpty()) {
+            return HttpResponse.notFound("Source not found");
+        }
+        SourceRecord source = opt.get();
+        if (source.url() == null || source.url().isBlank()) {
+            return HttpResponse.badRequest("Source has no URL configured");
+        }
+
+        RobotsCheckResult result = robotsTxtService.checkUrl(source.url());
+        sourceDao.updateRobotsCheck(id, result.robotsStatus(), result.crawlDelaySeconds(), result.message());
+
         return HttpResponse.ok(Map.of(
                 "allowed", result.allowed(),
                 "crawlDelaySeconds", result.crawlDelaySeconds(),
@@ -127,10 +191,26 @@ public class SourceHandler {
             return HttpResponse.notFound("Source not found");
         }
 
-        // Activation rule: only allow if robots.txt and sample checks were reviewed
+        SourceRecord source = opt.get();
+        if (req.allowed()) {
+            String access = source.accessType() != null ? source.accessType() : "CAREER_PAGE";
+            boolean isExempt = "INTERNAL".equalsIgnoreCase(access) || "DEEPLINK".equalsIgnoreCase(access);
+            if (!isExempt) {
+                // Must have ToS URL
+                String tos = source.tosUrl() != null && !source.tosUrl().isBlank() ? source.tosUrl() : source.cguUrl();
+                if (tos == null || tos.isBlank()) {
+                    return HttpResponse.badRequest("Cannot activate source: Terms of Service (ToS) URL is missing. Please provide a valid ToS URL before activation.");
+                }
+                // Must have successful robots.txt check
+                if (!"ALLOWED".equalsIgnoreCase(source.robotsStatus())) {
+                    return HttpResponse.badRequest("Cannot activate source: robots.txt check must be executed and ALLOWED before activation.");
+                }
+            }
+        }
+
         sourceDao.setAllowed(id, req.allowed());
         return HttpResponse.ok(Map.of(
-                "message", req.allowed() ? "Source activated and authorized for crawling" : "Source deactivated",
+                "message", req.allowed() ? "Source activated and authorized" : "Source deactivated",
                 "isAllowed", req.allowed()
         ));
     }

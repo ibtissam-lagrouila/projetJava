@@ -12,7 +12,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
-import java.util.UUID;
+import java.util.*;
 
 public final class DevSeedService {
 
@@ -662,6 +662,9 @@ public final class DevSeedService {
             createApplication(conn, studentProfileId, offer4Id, ApplicationStatus.INTERVIEW,
                     "I am passionate about genomics pipelines...", "Confirm interview slot with Genomics Unit");
         }
+
+        // Seed comprehensive activity for Genomics Unit (Lab Dashboard reference)
+        seedGenomicsLabActivity(conn, genomicsLabId, offer4Id);
     }
 
     private UUID getOrCreateSource(Connection conn, String name, String url, String type) throws SQLException {
@@ -889,6 +892,271 @@ public final class DevSeedService {
                 if (rs.next())
                     return (UUID) rs.getObject(1);
                 return null;
+            }
+        }
+    }
+
+    private void seedGenomicsLabActivity(Connection conn, UUID genomicsLabId, UUID offer4Id) throws SQLException {
+        // 1. Ensure Genomics Unit has 3 distinct open offers
+        UUID singleCellOfferId = getOfferIdByTitle(conn, "Single-cell RNA sequencing pipeline");
+        if (singleCellOfferId == null) {
+            singleCellOfferId = UUID.randomUUID();
+            insertOffer(conn, singleCellOfferId, genomicsLabId, "Single-cell RNA sequencing pipeline",
+                    "Genomics & Single-Cell Biology",
+                    6, LocalDate.of(2026, 4, 1), "Fès", "Funded", "Gratification 3500 DH/mois",
+                    "Single-cell transcriptomic processing and clustering analysis for heterogeneous cancer tissue samples.",
+                    new String[] { "Run Seurat and Scanpy pipelines", "Identify novel cellular sub-populations", "Prepare publication figures" },
+                    2, "PUBLISHED", "DEMO", null, null, "hash-single-cell-pipeline", LocalDate.of(2027, 1, 15));
+            attachOfferSkill(conn, singleCellOfferId, "python", true);
+            attachOfferSkill(conn, singleCellOfferId, "r", true);
+            attachOfferSkill(conn, singleCellOfferId, "nextflow", true);
+        }
+
+        UUID microbiomeOfferId = getOfferIdByTitle(conn, "Microbiome diversity analysis");
+        if (microbiomeOfferId == null) {
+            microbiomeOfferId = UUID.randomUUID();
+            insertOffer(conn, microbiomeOfferId, genomicsLabId, "Microbiome diversity analysis",
+                    "Metagenomics & Microbiome",
+                    4, null, "Fès", "Unfunded", null,
+                    "Exploratory profiling of human gut microbiome datasets using 16S rRNA amplicon sequencing data.",
+                    new String[] { "Sequence quality control and trimming", "Taxonomic classification with QIIME2" },
+                    1, "PUBLISHED", "DEMO", null, null, "hash-microbiome-analysis", LocalDate.of(2026, 12, 30));
+            attachOfferSkill(conn, microbiomeOfferId, "python", false);
+            try (PreparedStatement ps = conn.prepareStatement("UPDATE offers SET created_at = CURRENT_TIMESTAMP - INTERVAL '10 days' WHERE id = ?")) {
+                ps.setObject(1, microbiomeOfferId);
+                ps.executeUpdate();
+            }
+        }
+
+        // 2. Demo student candidates
+        record DemoStudentSpec(String email, String name, String level, String field, String univ, List<String> skills, List<String> interests) {}
+        List<DemoStudentSpec> demoStudents = List.of(
+                new DemoStudentSpec("yassine.bennis@univ-fes.ma", "Yassine Bennis", "Master 1", "data science", "Université Sidi Mohamed Ben Abdellah de Fès",
+                        List.of("python", "r", "bioconductor", "nextflow"), List.of("data science", "Biology, bioinformatics")),
+                new DemoStudentSpec("nour.amrani@univ-fes.ma", "Nour Amrani", "Engineering", "bioinformatics", "Université Sidi Mohamed Ben Abdellah de Fès",
+                        List.of("python", "bioconductor", "nextflow"), List.of("Biology, bioinformatics", "bioinformatics")),
+                new DemoStudentSpec("hamza.kabbaj@um5.ac.ma", "Hamza Kabbaj", "Master 2", "biology", "Université Mohammed V de Rabat",
+                        List.of("python", "r", "nextflow"), List.of("biology", "Genomics & Single-Cell Biology")),
+                new DemoStudentSpec("imane.rafik@univ-casa.ma", "Imane Rafik", "Licence 3", "statistics", "Université Hassan II de Casablanca",
+                        List.of("r", "bioconductor"), List.of("statistics", "Genomics & Single-Cell Biology")),
+                new DemoStudentSpec("karim.tazi@uit.ac.ma", "Karim Tazi", "Master 1", "computer science", "Université Ibn Tofail",
+                        List.of("python", "sql"), List.of("computer science")),
+                new DemoStudentSpec("sara.mansouri@uca.ma", "Sara Mansouri", "Master 2", "genetics", "Université Cadi Ayyad",
+                        List.of("r", "genetics"), List.of("genetics"))
+        );
+
+        Map<String, UUID> studentProfileMap = new HashMap<>();
+        for (DemoStudentSpec spec : demoStudents) {
+            UUID uId = getUserIdByEmail(conn, spec.email());
+            if (uId == null) {
+                uId = UUID.randomUUID();
+                String hash = PasswordHasher.hashPassword("StudentPass2026!");
+                String salt = hash.split("\\$")[2];
+                String uSql = "INSERT INTO users (id, email, password_hash, salt, role, full_name, level, university, email_verified_at, is_active) VALUES (?, ?, ?, ?, 'STUDENT', ?, ?, ?, CURRENT_TIMESTAMP, TRUE)";
+                try (PreparedStatement ps = conn.prepareStatement(uSql)) {
+                    ps.setObject(1, uId);
+                    ps.setString(2, spec.email());
+                    ps.setString(3, hash);
+                    ps.setString(4, salt);
+                    ps.setString(5, spec.name());
+                    ps.setString(6, spec.level());
+                    ps.setString(7, spec.univ());
+                    ps.executeUpdate();
+                }
+            } else {
+                try (PreparedStatement ps = conn.prepareStatement("UPDATE users SET full_name = ?, level = ?, university = ? WHERE id = ?")) {
+                    ps.setString(1, spec.name());
+                    ps.setString(2, spec.level());
+                    ps.setString(3, spec.univ());
+                    ps.setObject(4, uId);
+                    ps.executeUpdate();
+                }
+            }
+
+            UUID profId = null;
+            try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM student_profiles WHERE user_id = ?")) {
+                ps.setObject(1, uId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) profId = (UUID) rs.getObject(1);
+                }
+            }
+            if (profId == null) {
+                profId = UUID.randomUUID();
+                String pSql = "INSERT INTO student_profiles (id, user_id, level, field_of_study, university_name, availability_start, availability_duration_months, cv_parsed) VALUES (?, ?, ?, ?, ?, '2026-03-01', 6, TRUE)";
+                try (PreparedStatement ps = conn.prepareStatement(pSql)) {
+                    ps.setObject(1, profId);
+                    ps.setObject(2, uId);
+                    ps.setString(3, spec.level());
+                    ps.setString(4, spec.field());
+                    ps.setString(5, spec.univ());
+                    ps.executeUpdate();
+                }
+            }
+
+            for (String sk : spec.skills()) {
+                ensureSkillExists(conn, sk, sk.toLowerCase(), "Tech");
+                String attachSql = """
+                    INSERT INTO student_skills (student_id, skill_id)
+                    SELECT ?, id FROM skills WHERE normalized_name = ?
+                    ON CONFLICT DO NOTHING
+                """;
+                try (PreparedStatement ps = conn.prepareStatement(attachSql)) {
+                    ps.setObject(1, profId);
+                    ps.setString(2, sk.toLowerCase());
+                    ps.executeUpdate();
+                }
+            }
+            studentProfileMap.put(spec.name(), profId);
+        }
+
+        // 3. Applications with frozen snapshot JSON
+        record AppSeedSpec(String studentName, UUID offerId, String status, int daysAgo) {}
+        List<AppSeedSpec> appsToSeed = List.of(
+                new AppSeedSpec("Yassine Bennis", offer4Id, "SENT", 2),
+                new AppSeedSpec("Nour Amrani", offer4Id, "SENT", 3),
+                new AppSeedSpec("Hamza Kabbaj", singleCellOfferId, "SENT", 4),
+                new AppSeedSpec("Imane Rafik", singleCellOfferId, "SENT", 4),
+                new AppSeedSpec("Karim Tazi", singleCellOfferId, "SENT", 6),
+                new AppSeedSpec("Sara Mansouri", singleCellOfferId, "SENT", 6)
+        );
+
+        Map<String, UUID> appIds = new HashMap<>();
+        for (AppSeedSpec a : appsToSeed) {
+            UUID pId = studentProfileMap.get(a.studentName());
+            if (pId == null) continue;
+
+            DemoStudentSpec spec = demoStudents.stream().filter(s -> s.name().equals(a.studentName())).findFirst().orElse(null);
+            var fullProfile = new com.fitwell.dao.StudentProfileDao.StudentFullProfile(
+                    pId, null, a.studentName(), spec != null ? spec.univ() : "",
+                    spec != null ? spec.level() : "Master", List.of("French", "English"),
+                    spec != null ? spec.interests() : List.of(), LocalDate.of(2026, 3, 1),
+                    6, null, true, spec != null ? spec.skills() : List.of(), List.of()
+            );
+            String snapshotJson = com.fitwell.core.json.JsonCodec.toJson(fullProfile);
+
+            UUID appId = UUID.randomUUID();
+            String insApp = """
+                INSERT INTO applications (id, student_id, offer_id, status, cover_letter, next_step_calc, profile_snapshot_json, sent_at, created_at)
+                VALUES (?, ?, ?, ?, 'Application for research internship', 'Review candidate profile', ?::jsonb, CURRENT_TIMESTAMP - (? * INTERVAL '1 day'), CURRENT_TIMESTAMP - (? * INTERVAL '1 day'))
+                ON CONFLICT (student_id, offer_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    profile_snapshot_json = EXCLUDED.profile_snapshot_json,
+                    sent_at = EXCLUDED.sent_at
+                RETURNING id
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(insApp)) {
+                ps.setObject(1, appId);
+                ps.setObject(2, pId);
+                ps.setObject(3, a.offerId());
+                ps.setString(4, a.status());
+                ps.setString(5, snapshotJson);
+                ps.setInt(6, a.daysAgo());
+                ps.setInt(7, a.daysAgo());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        appIds.put(a.studentName(), (UUID) rs.getObject(1));
+                    }
+                }
+            }
+        }
+
+        // 4. Seed Interviews for the current week (Africa/Casablanca timezone)
+        UUID yassineAppId = appIds.get("Yassine Bennis");
+        UUID nourAppId = appIds.get("Nour Amrani");
+        UUID hamzaAppId = appIds.get("Hamza Kabbaj");
+
+        if (yassineAppId != null) {
+            String intSql = """
+                INSERT INTO interviews (id, application_id, scheduled_time, status, location_or_link)
+                VALUES (?, ?, (DATE_TRUNC('week', CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Casablanca') + INTERVAL '2 days 14 hours') AT TIME ZONE 'Africa/Casablanca', 'CONFIRMED', 'https://meet.fitwell.ma/genomics-yassine')
+                ON CONFLICT DO NOTHING
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(intSql)) {
+                ps.setObject(1, UUID.randomUUID());
+                ps.setObject(2, yassineAppId);
+                ps.executeUpdate();
+            }
+        }
+        if (nourAppId != null) {
+            String intSql = """
+                INSERT INTO interviews (id, application_id, scheduled_time, status, location_or_link)
+                VALUES (?, ?, (DATE_TRUNC('week', CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Casablanca') + INTERVAL '3 days 10 hours') AT TIME ZONE 'Africa/Casablanca', 'CONFIRMED', 'Faculté de Médecine et de Pharmacie de Fès, Salle 204')
+                ON CONFLICT DO NOTHING
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(intSql)) {
+                ps.setObject(1, UUID.randomUUID());
+                ps.setObject(2, nourAppId);
+                ps.executeUpdate();
+            }
+        }
+        if (hamzaAppId != null) {
+            String intSql = """
+                INSERT INTO interviews (id, application_id, scheduled_time, status, location_or_link)
+                VALUES (?, ?, (DATE_TRUNC('week', CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Casablanca') + INTERVAL '4 days 16 hours') AT TIME ZONE 'Africa/Casablanca', 'PROPOSED', 'Proposed video call link')
+                ON CONFLICT DO NOTHING
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(intSql)) {
+                ps.setObject(1, UUID.randomUUID());
+                ps.setObject(2, hamzaAppId);
+                ps.executeUpdate();
+            }
+        }
+
+        // 5. Seed Views for current month (420 views for high-performing offers, 5 views for microbiome)
+        String viewCountSql = "SELECT COUNT(*) FROM offer_views v JOIN offers o ON v.offer_id = o.id WHERE o.lab_id = ?";
+        int currentViews = 0;
+        try (PreparedStatement ps = conn.prepareStatement(viewCountSql)) {
+            ps.setObject(1, genomicsLabId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) currentViews = rs.getInt(1);
+            }
+        }
+        if (currentViews < 50) {
+            String insertViewSql = "INSERT INTO offer_views (id, offer_id, student_id, viewed_at, ip_hash) VALUES (?, ?, ?, CURRENT_TIMESTAMP - (? * INTERVAL '1 hour'), ?)";
+            try (PreparedStatement ps = conn.prepareStatement(insertViewSql)) {
+                for (int i = 0; i < 420; i++) {
+                    ps.setObject(1, UUID.randomUUID());
+                    ps.setObject(2, i % 2 == 0 ? offer4Id : singleCellOfferId);
+                    ps.setObject(3, null);
+                    ps.setInt(4, i % 400);
+                    ps.setString(5, "hash-view-" + i);
+                    ps.addBatch();
+                    if (i % 100 == 0) ps.executeBatch();
+                }
+                ps.executeBatch();
+            }
+            // 5 views for microbiome offer
+            try (PreparedStatement ps = conn.prepareStatement(insertViewSql)) {
+                for (int i = 0; i < 5; i++) {
+                    ps.setObject(1, UUID.randomUUID());
+                    ps.setObject(2, microbiomeOfferId);
+                    ps.setObject(3, null);
+                    ps.setInt(4, i * 20);
+                    ps.setString(5, "hash-microbiome-" + i);
+                    ps.executeUpdate();
+                }
+            }
+        }
+
+        // 6. Seed Application Events for SHORTLISTED (9 events in current month)
+        String eventCountSql = "SELECT COUNT(*) FROM application_events ae JOIN applications a ON ae.application_id = a.id JOIN offers o ON a.offer_id = o.id WHERE o.lab_id = ? AND ae.to_status = 'SHORTLISTED'";
+        int currentEvents = 0;
+        try (PreparedStatement ps = conn.prepareStatement(eventCountSql)) {
+            ps.setObject(1, genomicsLabId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) currentEvents = rs.getInt(1);
+            }
+        }
+        if (currentEvents < 5 && yassineAppId != null) {
+            String insEvt = "INSERT INTO application_events (id, application_id, from_status, to_status, note, created_at) VALUES (?, ?, 'SENT', 'SHORTLISTED', 'Demo candidate shortlisted', CURRENT_TIMESTAMP - (? * INTERVAL '2 days'))";
+            try (PreparedStatement ps = conn.prepareStatement(insEvt)) {
+                for (int i = 0; i < 9; i++) {
+                    ps.setObject(1, UUID.randomUUID());
+                    ps.setObject(2, yassineAppId);
+                    ps.setInt(3, i);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
             }
         }
     }

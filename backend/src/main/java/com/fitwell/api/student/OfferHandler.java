@@ -7,13 +7,17 @@ import com.fitwell.core.middleware.AuthMiddleware;
 import com.fitwell.core.security.AuthContext;
 import com.fitwell.dao.OfferDao;
 import com.fitwell.dao.OfferDao.OfferRecord;
+import com.fitwell.dao.SourceDao;
 import com.fitwell.dao.StudentProfileDao;
 import com.fitwell.dao.StudentProfileDao.StudentFullProfile;
 import com.fitwell.model.dto.OfferDtos.*;
 import com.fitwell.service.MatchingService;
 import com.fitwell.service.OfferLinkVerifierService;
 import com.fitwell.service.QueryParserService;
+import com.fitwell.service.sourcing.model.SourceRecord;
 
+import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDate;
@@ -27,12 +31,21 @@ public final class OfferHandler {
     private final MatchingService matchingService;
     private final QueryParserService queryParserService;
     private final OfferLinkVerifierService linkVerifier;
+    private final SourceDao sourceDao;
 
     public OfferHandler(OfferDao offerDao,
             StudentProfileDao studentProfileDao,
             MatchingService matchingService,
             QueryParserService queryParserService) {
-        this(offerDao, studentProfileDao, matchingService, queryParserService, new OfferLinkVerifierService());
+        this(offerDao, studentProfileDao, matchingService, queryParserService, new OfferLinkVerifierService(), null);
+    }
+
+    public OfferHandler(OfferDao offerDao,
+            StudentProfileDao studentProfileDao,
+            MatchingService matchingService,
+            QueryParserService queryParserService,
+            SourceDao sourceDao) {
+        this(offerDao, studentProfileDao, matchingService, queryParserService, new OfferLinkVerifierService(), sourceDao);
     }
 
     public OfferHandler(OfferDao offerDao,
@@ -40,11 +53,21 @@ public final class OfferHandler {
             MatchingService matchingService,
             QueryParserService queryParserService,
             OfferLinkVerifierService linkVerifier) {
+        this(offerDao, studentProfileDao, matchingService, queryParserService, linkVerifier, null);
+    }
+
+    public OfferHandler(OfferDao offerDao,
+            StudentProfileDao studentProfileDao,
+            MatchingService matchingService,
+            QueryParserService queryParserService,
+            OfferLinkVerifierService linkVerifier,
+            SourceDao sourceDao) {
         this.offerDao = offerDao;
         this.studentProfileDao = studentProfileDao;
         this.matchingService = matchingService;
         this.queryParserService = queryParserService;
         this.linkVerifier = linkVerifier != null ? linkVerifier : new OfferLinkVerifierService();
+        this.sourceDao = sourceDao;
     }
 
     public HttpResponse getOffers(RequestContext ctx) throws Exception {
@@ -77,7 +100,18 @@ public final class OfferHandler {
             }
         }
 
+        Set<String> deeplinkNames = Set.of(
+                "linkedin jobs", "linkedin", "rekrute", "emploi.ma", "stagiaires.ma",
+                "anapec", "emploi-public.ma", "bayt", "indeed maroc", "ma.indeed.com",
+                "jobsquare", "optioncarriere", "dreamjob"
+        );
+
         for (OfferRecord offer : rawOffers) {
+            String srcNameLower = (offer.sourceName() != null ? offer.sourceName() : "").toLowerCase(Locale.ROOT);
+            if (deeplinkNames.contains(srcNameLower) || "DEEPLINK".equalsIgnoreCase(offer.origin())) {
+                continue; // DEEPLINK sources never produce offer cards
+            }
+
             ScoreBreakdown score = matchingService.computeScore(profile, offer, parsedQuery);
 
             // Filter by minimum score
@@ -144,16 +178,49 @@ public final class OfferHandler {
 
         String joobleKey = System.getenv("JOOBLE_API_KEY");
         boolean hasJooble = joobleKey != null && !joobleKey.isBlank();
-        boolean hasActiveCareerSources = offerDao.hasActiveExternalSources();
+        int liveExternalSourceCount = 0;
+        if (sourceDao != null) {
+            try {
+                liveExternalSourceCount = sourceDao.countLiveExternalSources();
+            } catch (Exception ignored) {
+            }
+        }
+        boolean hasActiveCareerSources = offerDao.hasActiveExternalSources() || liveExternalSourceCount > 0;
         boolean externalSourcesConfigured = hasJooble || hasActiveCareerSources;
         String externalSourcesMissingReason = externalSourcesConfigured
                 ? null
-                : "No live external source connected. JOOBLE_API_KEY is not configured and no active approved CareerPageSource is registered.";
+                : "No live external source connected. JOOBLE_API_KEY is not configured and no active approved CareerPageSource or remote feed is registered.";
+
+        List<DeeplinkSourceItem> deeplinkSources = new ArrayList<>();
+        if (sourceDao != null) {
+            try {
+                List<SourceRecord> dlList = sourceDao.findActiveDeeplinks();
+                String keywords = freeQuery != null ? freeQuery : "";
+                String city = (parsedQuery != null && parsedQuery.city() != null)
+                        ? parsedQuery.city()
+                        : (cityFilter != null ? cityFilter : "");
+                for (SourceRecord dl : dlList) {
+                    String searchUrl = buildDeeplinkUrl(dl.searchUrlTemplate(), dl.url(), keywords, city);
+                    if (searchUrl != null) {
+                        deeplinkSources.add(new DeeplinkSourceItem(
+                                dl.id().toString(),
+                                dl.name(),
+                                dl.domain(),
+                                searchUrl,
+                                dl.notes()
+                        ));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("offers", scoredOffers);
         resp.put("totalCount", scoredOffers.size());
         resp.put("externalSourcesConfigured", externalSourcesConfigured);
+        resp.put("liveExternalSourceCount", liveExternalSourceCount);
+        resp.put("deeplinkSources", deeplinkSources);
         if (externalSourcesMissingReason != null) {
             resp.put("externalSourcesMissingReason", externalSourcesMissingReason);
         }
@@ -162,6 +229,36 @@ public final class OfferHandler {
         }
 
         return HttpResponse.ok(resp);
+    }
+
+    public static String buildDeeplinkUrl(String template, String defaultUrl, String keywords, String city) {
+        if (template == null || template.isBlank()) {
+            return sanitizeHttpUrl(defaultUrl);
+        }
+        String encodedKeywords = (keywords != null && !keywords.isBlank())
+                ? URLEncoder.encode(keywords.trim(), StandardCharsets.UTF_8)
+                : "";
+        String encodedCity = (city != null && !city.isBlank())
+                ? URLEncoder.encode(city.trim(), StandardCharsets.UTF_8)
+                : "";
+
+        String rendered = template.replace("{keywords}", encodedKeywords).replace("{city}", encodedCity);
+        return sanitizeHttpUrl(rendered);
+    }
+
+    public static String sanitizeHttpUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            URI uri = URI.create(url.trim());
+            String scheme = uri.getScheme();
+            if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                return uri.toASCIIString();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     public HttpResponse getOfferById(RequestContext ctx) throws Exception {
@@ -279,7 +376,8 @@ public final class OfferHandler {
             return HttpResponse.badRequest("Explicit confirmation is required before applying with Fitwell.");
         }
 
-        var application = offerDao.submitApplication(profile.id(), offerId, req.coverLetter(), isManual, confirmed);
+        String snapshotJson = com.fitwell.core.json.JsonCodec.toJson(profile);
+        var application = offerDao.submitApplication(profile.id(), offerId, req.coverLetter(), isManual, confirmed, snapshotJson);
 
         String msg = isManual
                 ? "External application tracking recorded in Applications"

@@ -66,6 +66,7 @@ public final class Main {
             OfferDao offerDao = new OfferDao(pool);
             SourceDao sourceDao = new SourceDao(pool);
             ValidationDao validationDao = new ValidationDao(pool);
+            LabDashboardDao labDashboardDao = new LabDashboardDao(pool);
 
             // Services
             String uploadDir = System.getenv().getOrDefault("UPLOAD_DIR", "./uploads");
@@ -77,6 +78,7 @@ public final class Main {
             StudentService studentService = new StudentService(studentProfileDao, sessionDao, cvExtractorService, auditService);
             MatchingService matchingService = new MatchingService();
             QueryParserService queryParserService = new QueryParserService();
+            LabDashboardService labDashboardService = new LabDashboardService(labDashboardDao, labMemberDao, labDao, matchingService);
 
             RobotsTxtService robotsTxtService = new RobotsTxtService();
             CareerPageExtractor careerPageExtractor = new CareerPageExtractor();
@@ -88,10 +90,13 @@ public final class Main {
             AuthHandler authHandler = new AuthHandler(authService, labDao, studentProfileDao, allowedUniversityDao);
             StudentHandler studentHandler = new StudentHandler(studentService, uploadDir);
             com.fitwell.api.student.OfferHandler offerHandler = new com.fitwell.api.student.OfferHandler(
-                    offerDao, studentProfileDao, matchingService, queryParserService
+                    offerDao, studentProfileDao, matchingService, queryParserService, sourceDao
             );
             SourceHandler sourceHandler = new SourceHandler(
                     sourceDao, validationDao, offerDao, robotsTxtService, crawlerService
+            );
+            com.fitwell.api.lab.LabHandler labHandler = new com.fitwell.api.lab.LabHandler(
+                    labDashboardService, labMemberDao
             );
 
             // Router & Middlewares
@@ -163,8 +168,9 @@ public final class Main {
             router.get("/api/student/dashboard", ctx -> HttpResponse.ok(Map.of("message", "Welcome to Student Space")),
                     new RoleGuardMiddleware(Role.STUDENT));
 
-            router.get("/api/lab/dashboard", ctx -> HttpResponse.ok(Map.of("message", "Welcome to Lab Space")),
-                    new RoleGuardMiddleware(Role.LAB));
+            RoleGuardMiddleware labGuard = new RoleGuardMiddleware(Role.LAB);
+            router.get("/api/lab/dashboard", labHandler::getDashboard, labGuard);
+            router.post("/api/lab/shortlist", labHandler::shortlistCandidates, labGuard);
 
             router.post("/api/lab/offers", ctx -> {
                 AuthContext auth = ctx.getAttribute(AuthMiddleware.AUTH_ATTRIBUTE);
@@ -189,7 +195,9 @@ public final class Main {
             // Phase C: CareerPageSource Connector Admin Endpoints
             router.get("/api/admin/sources", sourceHandler::getSources, adminGuard);
             router.post("/api/admin/sources", sourceHandler::createSource, adminGuard);
+            router.put("/api/admin/sources/{id}", sourceHandler::updateSource, adminGuard);
             router.post("/api/admin/sources/check-robots", sourceHandler::checkRobots, adminGuard);
+            router.post("/api/admin/sources/{id}/check-robots", sourceHandler::checkRobotsForExistingSource, adminGuard);
             router.post("/api/admin/sources/test-sample", sourceHandler::testSample, adminGuard);
             router.put("/api/admin/sources/{id}/allow", sourceHandler::toggleAllow, adminGuard);
             router.post("/api/admin/sources/{id}/crawl", sourceHandler::crawlSource, adminGuard);

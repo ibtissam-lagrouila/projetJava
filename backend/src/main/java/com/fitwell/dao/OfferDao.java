@@ -205,16 +205,35 @@ public final class OfferDao {
     }
 
     public void recordOfferView(UUID offerId, UUID studentProfileId, String ipHash) throws SQLException {
+        if (offerId == null) return;
         String sql = """
-                    INSERT INTO offer_views (id, offer_id, student_id, viewed_at, ip_hash)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
-                """;
+            INSERT INTO offer_views (id, offer_id, student_id, viewed_at, ip_hash)
+            SELECT ?, ?, ?, CURRENT_TIMESTAMP, ?
+            WHERE EXISTS (
+                SELECT 1 FROM offers WHERE id = ? AND origin IN ('LAB_POSTED', 'INTERNAL', 'DEMO')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM offer_views
+                WHERE offer_id = ?
+                  AND (
+                      (?::uuid IS NOT NULL AND student_id = ?)
+                      OR (?::uuid IS NULL AND ip_hash IS NOT NULL AND ip_hash = ?)
+                  )
+                  AND (viewed_at AT TIME ZONE 'Africa/Casablanca')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Casablanca')::date
+            )
+        """;
         Connection conn = pool.acquire();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setObject(1, UUID.randomUUID());
             ps.setObject(2, offerId);
             ps.setObject(3, studentProfileId);
             ps.setString(4, ipHash);
+            ps.setObject(5, offerId);
+            ps.setObject(6, offerId);
+            ps.setObject(7, studentProfileId);
+            ps.setObject(8, studentProfileId);
+            ps.setObject(9, studentProfileId);
+            ps.setString(10, ipHash);
             ps.executeUpdate();
         } finally {
             pool.release(conn);
@@ -459,6 +478,11 @@ public final class OfferDao {
 
     public StudentApplicationItem submitApplication(UUID studentProfileId, UUID offerId, String coverLetter,
             boolean isManualExternal, boolean confirmed) throws SQLException {
+        return submitApplication(studentProfileId, offerId, coverLetter, isManualExternal, confirmed, null);
+    }
+
+    public StudentApplicationItem submitApplication(UUID studentProfileId, UUID offerId, String coverLetter,
+            boolean isManualExternal, boolean confirmed, String profileSnapshotJson) throws SQLException {
         if (!isManualExternal && !confirmed) {
             throw new IllegalArgumentException("Explicit confirmation is required before applying with Fitwell.");
         }
@@ -473,12 +497,13 @@ public final class OfferDao {
                         : "Fitwell application with verified CV and profile.");
 
         String sql = """
-                    INSERT INTO applications (id, student_id, offer_id, status, cover_letter, next_step_calc, sent_at, last_activity_at)
-                    VALUES (?, ?, ?, 'SENT', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    INSERT INTO applications (id, student_id, offer_id, status, cover_letter, next_step_calc, profile_snapshot_json, sent_at, last_activity_at)
+                    VALUES (?, ?, ?, 'SENT', ?, ?, ?::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (student_id, offer_id) DO UPDATE SET
                         status = 'SENT',
                         cover_letter = EXCLUDED.cover_letter,
                         next_step_calc = EXCLUDED.next_step_calc,
+                        profile_snapshot_json = COALESCE(EXCLUDED.profile_snapshot_json, applications.profile_snapshot_json),
                         last_activity_at = CURRENT_TIMESTAMP
                     RETURNING id
                 """;
@@ -489,6 +514,7 @@ public final class OfferDao {
             ps.setObject(3, offerId);
             ps.setString(4, letterText);
             ps.setString(5, nextStep);
+            ps.setString(6, profileSnapshotJson);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     id = (UUID) rs.getObject(1);

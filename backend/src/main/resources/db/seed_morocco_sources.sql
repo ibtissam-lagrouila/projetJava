@@ -1,15 +1,20 @@
 -- 1. Ensure unique sources for Mifactory, UIT, DeepLeaf
-INSERT INTO sources (id, name, url, type, status, accuracy_pct, last_run_at, cgu_url, is_allowed, robots_status)
+INSERT INTO sources (id, name, domain, access_type, url, type, status, accuracy_pct, last_run_at, cgu_url, tos_url, is_allowed, robots_status, notes)
 VALUES 
-  ('a1111111-1111-1111-1111-111111111111', 'Mifactory', 'https://mifactory.ma/carrieres', 'WEBSITE', 'ACTIVE', 96, CURRENT_TIMESTAMP, 'https://mifactory.ma/cgu', true, 'ALLOWED'),
-  ('a2222222-2222-2222-2222-222222222222', 'Université Ibn Tofail', 'https://uit.ac.ma/stages', 'WEBSITE', 'ACTIVE', 98, CURRENT_TIMESTAMP, 'https://uit.ac.ma/mentions-legales', true, 'ALLOWED'),
-  ('a3333333-3333-3333-3333-333333333333', 'DeepLeaf', 'https://deepleaf.io/careers', 'WEBSITE', 'ACTIVE', 95, CURRENT_TIMESTAMP, 'https://deepleaf.io/terms', true, 'ALLOWED')
+  ('a1111111-1111-1111-1111-111111111111', 'Mifactory', 'mifactory.ma', 'CAREER_PAGE', 'https://mifactory.ma/carrieres', 'WEBSITE', 'ACTIVE', 96, CURRENT_TIMESTAMP, 'https://mifactory.ma/cgu', 'https://mifactory.ma/cgu', true, 'ALLOWED', 'Real Moroccan tech venture carrieres page'),
+  ('a2222222-2222-2222-2222-222222222222', 'Université Ibn Tofail', 'uit.ac.ma', 'CAREER_PAGE', 'https://uit.ac.ma/stages', 'WEBSITE', 'ACTIVE', 98, CURRENT_TIMESTAMP, 'https://uit.ac.ma/mentions-legales', 'https://uit.ac.ma/mentions-legales', true, 'ALLOWED', 'Public Moroccan university research internship portal'),
+  ('a3333333-3333-3333-3333-333333333333', 'DeepLeaf', 'deepleaf.io', 'CAREER_PAGE', 'https://deepleaf.io/careers', 'WEBSITE', 'ACTIVE', 95, CURRENT_TIMESTAMP, 'https://deepleaf.io/terms', 'https://deepleaf.io/terms', true, 'ALLOWED', 'Moroccan AgriTech AI startup careers')
 ON CONFLICT (id) DO UPDATE SET 
   name = EXCLUDED.name,
+  domain = EXCLUDED.domain,
+  access_type = EXCLUDED.access_type,
   url = EXCLUDED.url,
+  cgu_url = EXCLUDED.cgu_url,
+  tos_url = EXCLUDED.tos_url,
   type = 'WEBSITE',
   status = 'ACTIVE',
-  is_allowed = true;
+  is_allowed = true,
+  robots_status = 'ALLOWED';
 
 -- 2. Insert Skills if not existing
 INSERT INTO skills (id, name, normalized_name, category) VALUES

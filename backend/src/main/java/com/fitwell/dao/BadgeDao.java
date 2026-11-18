@@ -64,11 +64,11 @@ public final class BadgeDao {
 
         Connection conn = pool.acquire();
         try {
-            // Count candidates to review
+            // Count candidates to review: To review = applications with status 'SENT'
             String candSql = """
                 SELECT COUNT(*) FROM applications a
                 JOIN offers o ON a.offer_id = o.id
-                WHERE o.lab_id = ? AND a.status IN ('SENT', 'REVIEWED')
+                WHERE o.lab_id = ? AND a.status = 'SENT'
             """;
             try (PreparedStatement ps = conn.prepareStatement(candSql)) {
                 ps.setObject(1, labId);
@@ -77,12 +77,15 @@ public final class BadgeDao {
                 }
             }
 
-            // Count interviews this week
+            // Count interviews this week: CONFIRMED interviews during current week (Mon-Sun, Africa/Casablanca)
             String intSql = """
                 SELECT COUNT(*) FROM interviews i
                 JOIN applications a ON i.application_id = a.id
                 JOIN offers o ON a.offer_id = o.id
                 WHERE o.lab_id = ?
+                  AND i.status = 'CONFIRMED'
+                  AND i.scheduled_time >= DATE_TRUNC('week', CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Casablanca') AT TIME ZONE 'Africa/Casablanca'
+                  AND i.scheduled_time < (DATE_TRUNC('week', CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Casablanca') + INTERVAL '7 days') AT TIME ZONE 'Africa/Casablanca'
             """;
             try (PreparedStatement ps = conn.prepareStatement(intSql)) {
                 ps.setObject(1, labId);

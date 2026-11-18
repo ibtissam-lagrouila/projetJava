@@ -33,10 +33,22 @@ export const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [badges, setBadges] = useState<Badges>({});
+  const [labMeta, setLabMeta] = useState<{ labName: string; city: string; role: string } | null>(null);
 
   useEffect(() => {
     if (user) {
       api.getBadges().then(setBadges);
+      if (user.role === 'LAB') {
+        api.getLabDashboard().then((data) => {
+          if (data && data.labName) {
+            setLabMeta({
+              labName: data.labName,
+              city: data.city,
+              role: data.role,
+            });
+          }
+        });
+      }
     }
   }, [user]);
 
@@ -92,7 +104,12 @@ export const Sidebar: React.FC = () => {
 
   const getSubtitle = () => {
     if (role === 'STUDENT') return user.level || 'Master 1, data science';
-    if (role === 'LAB') return 'Genomics Unit, Fès';
+    if (role === 'LAB') {
+      if (labMeta) {
+        return `${labMeta.labName}, ${labMeta.city} · ${labMeta.role}`;
+      }
+      return 'Genomics Unit, Fès · HR';
+    }
     return 'Platform admin';
   };
 

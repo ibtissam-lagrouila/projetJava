@@ -3,6 +3,7 @@ package com.fitwell.dao;
 import com.fitwell.core.db.ConnectionPool;
 import com.fitwell.service.sourcing.model.SourceRecord;
 
+import java.net.URI;
 import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,11 +21,20 @@ public class SourceDao {
 
     public List<SourceRecord> findAll() throws SQLException {
         String sql = """
-            SELECT id, name, url, cgu_url, type, status, accuracy_pct, is_allowed,
-                   robots_checked_at, robots_status, crawl_delay_seconds, css_selectors,
-                   auto_publish, failure_reason, alert_message, last_run_at, created_at
+            SELECT id, name, domain, access_type, url, cgu_url, tos_url, type, status, accuracy_pct, is_allowed,
+                   robots_checked_at, robots_status, crawl_delay_seconds, css_selectors, search_url_template,
+                   notes, auto_publish, failure_reason, alert_message, last_run_at, created_at
             FROM sources
-            ORDER BY created_at DESC
+            ORDER BY 
+                CASE access_type
+                    WHEN 'INTERNAL' THEN 1
+                    WHEN 'API' THEN 2
+                    WHEN 'CAREER_PAGE' THEN 3
+                    WHEN 'DEEPLINK' THEN 4
+                    WHEN 'REMOTE_FEED' THEN 5
+                    ELSE 6
+                END,
+                created_at DESC
         """;
 
         List<SourceRecord> list = new ArrayList<>();
@@ -40,11 +50,53 @@ public class SourceDao {
         return list;
     }
 
+    public List<SourceRecord> findActiveDeeplinks() throws SQLException {
+        String sql = """
+            SELECT id, name, domain, access_type, url, cgu_url, tos_url, type, status, accuracy_pct, is_allowed,
+                   robots_checked_at, robots_status, crawl_delay_seconds, css_selectors, search_url_template,
+                   notes, auto_publish, failure_reason, alert_message, last_run_at, created_at
+            FROM sources
+            WHERE access_type = 'DEEPLINK' AND is_allowed = TRUE
+            ORDER BY name ASC
+        """;
+
+        List<SourceRecord> list = new ArrayList<>();
+        Connection conn = pool.acquire();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                list.add(mapRow(rs));
+            }
+        } finally {
+            pool.release(conn);
+        }
+        return list;
+    }
+
+    public int countLiveExternalSources() throws SQLException {
+        String sql = """
+            SELECT COUNT(*) 
+            FROM sources 
+            WHERE access_type IN ('API', 'CAREER_PAGE', 'REMOTE_FEED') 
+              AND is_allowed = TRUE
+        """;
+        Connection conn = pool.acquire();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        } finally {
+            pool.release(conn);
+        }
+        return 0;
+    }
+
     public Optional<SourceRecord> findById(UUID id) throws SQLException {
         String sql = """
-            SELECT id, name, url, cgu_url, type, status, accuracy_pct, is_allowed,
-                   robots_checked_at, robots_status, crawl_delay_seconds, css_selectors,
-                   auto_publish, failure_reason, alert_message, last_run_at, created_at
+            SELECT id, name, domain, access_type, url, cgu_url, tos_url, type, status, accuracy_pct, is_allowed,
+                   robots_checked_at, robots_status, crawl_delay_seconds, css_selectors, search_url_template,
+                   notes, auto_publish, failure_reason, alert_message, last_run_at, created_at
             FROM sources
             WHERE id = ?
         """;
@@ -64,25 +116,47 @@ public class SourceDao {
     }
 
     public SourceRecord create(String name, String url, String cguUrl, String type, String cssSelectors, boolean autoPublish) throws SQLException {
+        return create(name, null, "CAREER_PAGE", url, cguUrl, null, null, type, cssSelectors, autoPublish);
+    }
+
+    public SourceRecord create(String name, String domain, String accessType, String url, String cguUrl,
+                               String searchUrlTemplate, String notes, String type, String cssSelectors,
+                               boolean autoPublish) throws SQLException {
         UUID id = UUID.randomUUID();
+        if (domain == null || domain.isBlank()) {
+            try {
+                URI uri = URI.create(url);
+                domain = uri.getHost();
+            } catch (Exception ignored) {
+                domain = "";
+            }
+        }
+        String resolvedAccessType = (accessType != null && !accessType.isBlank()) ? accessType : "CAREER_PAGE";
+
         String sql = """
-            INSERT INTO sources (id, name, url, cgu_url, type, status, accuracy_pct, is_allowed,
-                                 robots_status, crawl_delay_seconds, css_selectors, auto_publish, created_at)
-            VALUES (?, ?, ?, ?, ?, 'PENDING', 100, FALSE, 'PENDING_CHECK', 5, ?::jsonb, ?, CURRENT_TIMESTAMP)
-            RETURNING id, name, url, cgu_url, type, status, accuracy_pct, is_allowed,
-                      robots_checked_at, robots_status, crawl_delay_seconds, css_selectors,
-                      auto_publish, failure_reason, alert_message, last_run_at, created_at
+            INSERT INTO sources (id, name, domain, access_type, url, cgu_url, tos_url, search_url_template,
+                                 notes, type, status, accuracy_pct, is_allowed, robots_status, crawl_delay_seconds,
+                                 css_selectors, auto_publish, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 100, FALSE, 'PENDING_CHECK', 5, ?::jsonb, ?, CURRENT_TIMESTAMP)
+            RETURNING id, name, domain, access_type, url, cgu_url, tos_url, type, status, accuracy_pct, is_allowed,
+                      robots_checked_at, robots_status, crawl_delay_seconds, css_selectors, search_url_template,
+                      notes, auto_publish, failure_reason, alert_message, last_run_at, created_at
         """;
 
         Connection conn = pool.acquire();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setObject(1, id);
             ps.setString(2, name);
-            ps.setString(3, url);
-            ps.setString(4, cguUrl);
-            ps.setString(5, type != null ? type : "WEBSITE");
-            ps.setString(6, cssSelectors != null && !cssSelectors.isBlank() ? cssSelectors : null);
-            ps.setBoolean(7, autoPublish);
+            ps.setString(3, domain);
+            ps.setString(4, resolvedAccessType);
+            ps.setString(5, url);
+            ps.setString(6, cguUrl);
+            ps.setString(7, cguUrl);
+            ps.setString(8, searchUrlTemplate);
+            ps.setString(9, notes);
+            ps.setString(10, type != null ? type : "WEBSITE");
+            ps.setString(11, cssSelectors != null && !cssSelectors.isBlank() ? cssSelectors : null);
+            ps.setBoolean(12, autoPublish);
 
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -110,6 +184,28 @@ public class SourceDao {
             ps.setInt(2, crawlDelaySeconds);
             ps.setString(3, message);
             ps.setObject(4, id);
+            ps.executeUpdate();
+        } finally {
+            pool.release(conn);
+        }
+    }
+
+    public void updateDetails(UUID id, String tosUrl, String searchUrlTemplate, String notes) throws SQLException {
+        String sql = """
+            UPDATE sources
+            SET tos_url = ?,
+                cgu_url = ?,
+                search_url_template = ?,
+                notes = ?
+            WHERE id = ?
+        """;
+        Connection conn = pool.acquire();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, tosUrl);
+            ps.setString(2, tosUrl);
+            ps.setString(3, searchUrlTemplate);
+            ps.setString(4, notes);
+            ps.setObject(5, id);
             ps.executeUpdate();
         } finally {
             pool.release(conn);
@@ -194,8 +290,20 @@ public class SourceDao {
     private SourceRecord mapRow(ResultSet rs) throws SQLException {
         UUID id = (UUID) rs.getObject("id");
         String name = rs.getString("name");
+        String domain = getNullableString(rs, "domain");
+        String accessType = getNullableString(rs, "access_type");
+        if (accessType == null || accessType.isBlank()) {
+            accessType = "CAREER_PAGE";
+        }
         String url = rs.getString("url");
-        String cguUrl = rs.getString("cgu_url");
+        String cguUrl = getNullableString(rs, "cgu_url");
+        String tosUrl = getNullableString(rs, "tos_url");
+        if (tosUrl == null) {
+            tosUrl = cguUrl;
+        }
+        if (cguUrl == null) {
+            cguUrl = tosUrl;
+        }
         String type = rs.getString("type");
         String status = rs.getString("status");
         int accuracyPct = rs.getInt("accuracy_pct");
@@ -204,6 +312,8 @@ public class SourceDao {
         String robotsStatus = rs.getString("robots_status");
         int crawlDelaySeconds = rs.getInt("crawl_delay_seconds");
         String cssSelectors = rs.getString("css_selectors");
+        String searchUrlTemplate = getNullableString(rs, "search_url_template");
+        String notes = getNullableString(rs, "notes");
         boolean autoPublish = rs.getBoolean("auto_publish");
         String failureReason = rs.getString("failure_reason");
         String alertMessage = rs.getString("alert_message");
@@ -211,12 +321,20 @@ public class SourceDao {
         Timestamp createdAt = rs.getTimestamp("created_at");
 
         return new SourceRecord(
-                id, name, url, cguUrl, type, status, accuracyPct, isAllowed,
+                id, name, domain, accessType, url, cguUrl, tosUrl, type, status, accuracyPct, isAllowed,
                 robotsCheckedAt != null ? robotsCheckedAt.toInstant() : null,
-                robotsStatus, crawlDelaySeconds, cssSelectors, autoPublish,
+                robotsStatus, crawlDelaySeconds, cssSelectors, searchUrlTemplate, notes, autoPublish,
                 failureReason, alertMessage,
                 lastRunAt != null ? lastRunAt.toInstant() : null,
                 createdAt != null ? createdAt.toInstant() : null
         );
+    }
+
+    private String getNullableString(ResultSet rs, String colName) {
+        try {
+            return rs.getString(colName);
+        } catch (SQLException ignored) {
+            return null;
+        }
     }
 }

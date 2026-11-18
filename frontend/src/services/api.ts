@@ -1,8 +1,8 @@
 import { User, Badges } from '../types';
 
 class ApiService {
-  private getHeaders(): HeadersInit {
-    const headers: HeadersInit = {
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
     const token = localStorage.getItem('fitwell_token');
@@ -35,6 +35,48 @@ class ApiService {
       return await res.json();
     } catch {
       return {};
+    }
+  }
+
+  async getLabDashboard(labId?: string): Promise<import('../types').LabDashboardData | null> {
+    try {
+      const headers = this.getHeaders();
+      if (labId) {
+        headers['X-Lab-Id'] = labId;
+      }
+      const res = await fetch('/api/lab/dashboard', {
+        headers,
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        if (res.status === 403) {
+          const body = await res.json().catch(() => ({}));
+          return body as any;
+        }
+        return null;
+      }
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async shortlistCandidates(applicationIds: string[], confirmed: boolean, labId?: string): Promise<{ message: string; shortlistedCount: number } | null> {
+    try {
+      const headers = this.getHeaders();
+      if (labId) {
+        headers['X-Lab-Id'] = labId;
+      }
+      const res = await fetch('/api/lab/shortlist', {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ applicationIds, confirmed }),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
     }
   }
 

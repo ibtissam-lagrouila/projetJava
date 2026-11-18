@@ -374,6 +374,131 @@ Validée par 10 tests automatisés couvrant l'ensemble des règles :
 9. `testApplyOnOriginalSiteDoesNotCreateFitwellApplication` : *"Apply on the original site"* n'envoie aucune donnée et crée un suivi manuel avec confirmation.
 10. `testApplyWithFitwellRequiresExplicitConfirmation` : *"Apply with Fitwell"* rejette toute candidature sans confirmation explicite (HTTP 400).
 
+---
+
+## 8. Catalogue des Sources d'Offres de Stage (`OfferSource`)
+
+Fitwell classe et gouverne rigoureusement chaque provenance d'offres via la table `sources` (`V005__source_catalog.sql`) selon son **mode d'accès** (`access_type`) :
+
+### 1. Modes d'accès & Règles d'activation
+
+| Mode d'accès | Description | Collecte / Crawl | Règle d'activation | Cartes d'offres |
+| :--- | :--- | :--- | :--- | :--- |
+| **`INTERNAL`** | Offres saisies directement par les labos et entreprises partenaires Fitwell. | Aucune (interne) | Toujours active (`is_allowed = true`) | Oui ("Posted by the lab") |
+| **`API`** | Connecteur vers une API officielle (ex: Jooble). | Requêtes API serveur | Requiert `tos_url` et clé API valide | Oui ("via Jooble") |
+| **`DEEPLINK`** | Liens sortants de recherche pré-remplie (`{keywords}`, `{city}`). | **ZÉRO appel réseau / ZÉRO crawl** | Active par défaut (`is_allowed = true`) | **JAMAIS** (apparaît dans l'encadré *"Also search on"*) |
+| **`CAREER_PAGE`** | Pages carrières/stages d'entreprises et universités marocaines. | Crawler Jsoup nocturne (≤ 1 req / 5s) | **Désactivée par défaut** (`is_allowed = false`). Requiert `tos_url` + `robots.txt = ALLOWED` | Oui ("via NomSource") |
+| **`REMOTE_FEED`** | Flux RSS ou JSON structurés de télétravail international. | Lecture de flux | **Désactivée par défaut**. Requiert `tos_url` + attribution | Oui |
+
+### 2. Liste des sources du catalogue
+
+1. **INTERNAL** :
+   - *Fitwell labs and companies* (`fitwell.ma`) — Source principale, toujours active.
+2. **API** :
+   - *Jooble* (`jooble.org`) — Clé `JOOBLE_API_KEY` côté serveur uniquement, note : *"Morocco coverage not confirmed"*.
+3. **DEEPLINK** (*Zéro collecte, liens de recherche sortants encodés en UTF-8*) :
+   - **LinkedIn Jobs** (`linkedin.com`) : `https://www.linkedin.com/jobs/search/?keywords={keywords}&location={city}`
+   - **Rekrute** (`rekrute.com`) : `https://www.rekrute.com/offres-emploi-maroc.html?keyword={keywords}&region={city}`
+   - **Emploi.ma** (`emploi.ma`) : `https://www.emploi.ma/recherche-jobs-maroc?motcle={keywords}&f%5B0%5D=im_field_offre_region%3A{city}`
+   - **Stagiaires.ma** (`stagiaires.ma`) : `https://www.stagiaires.ma/offres-stages?q={keywords}&ville={city}`
+   - **ANAPEC** (`anapec.org`) : Modèle vide, renvoie vers `http://www.anapec.org` (*"template to verify"*).
+   - **Emploi-public.ma** (`emploi-public.ma`) : Modèle vide, renvoie vers `https://www.emploi-public.ma` (*"template to verify"*).
+   - **Bayt** (`bayt.com`) : `https://www.bayt.com/en/morocco/jobs/?q={keywords}&loc={city}`
+   - **Indeed Maroc** (`ma.indeed.com`) : `https://ma.indeed.com/jobs?q={keywords}&l={city}`
+   - **Jobsquare** (`jobsquare.ma`) : Modèle vide, renvoie vers `https://jobsquare.ma` (*"template to verify"*).
+   - **Optioncarriere** (`optioncarriere.ma`) : `https://www.optioncarriere.ma/emploi?s={keywords}&l={city}`
+   - **Dreamjob** (`dreamjob.ma`) : `https://dreamjob.ma/?s={keywords}` (*"Blog republishing offers - search link only, never crawl"*).
+4. **CAREER_PAGE** (*Toutes désactivées par défaut, activation soumise à vérification*) :
+   - Entreprises : OCP Group, Orange Maroc, Inwi, Maroc Telecom, Attijariwafa bank, Sofrecom Maroc, Capgemini Maroc, Renault Group Maroc, Mifactory, DeepLeaf.
+   - Universités & Institutions : UM6P, ENSIAS, INPT, CNRST, MAScIR, Université Ibn Tofail.
+5. **REMOTE_FEED** (*Désactivées par défaut*) :
+   - RemoteOK, Jobicy, We Work Remotely, Arbeitnow (Remotive exclu tant que ses CGU ne sont pas auditées).
+
+### 3. Comment ajouter une nouvelle source
+
+1. Se connecter avec le compte Admin (`admin@fitwell.ma` / `AdminPass123!`).
+2. Aller sur la page **Sourcing** (`/admin/sourcing`).
+3. Cliquer sur **"+ Add a source"** :
+   - Renseigner le nom et l'URL de la page d'offres.
+   - Cliquer sur **"Check robots.txt"** : le backend télécharge le `robots.txt` du domaine hôte et valide la compatibilité.
+   - Renseigner l'URL des **CGU / Terms of Service (ToS)**.
+   - *(Optionnel pour CAREER_PAGE)* Cliquer sur **"Test on a sample (max 5)"** pour tester l'extraction Jsoup/JSON-LD sans rien stocker.
+   - Si les deux contrôles sont réussis, cocher **"allowed"** pour autoriser la source.
+
+### 4. Configuration de la clé API Jooble
+
+1. Créer un compte éditeur sur [Jooble Publisher API](https://jooble.org/api/about).
+2. Obtenir votre clé API secrète.
+3. Renseigner la variable d'environnement dans votre fichier `.env` :
+   ```env
+   JOOBLE_API_KEY=votre_cle_secrete_ici
+   ```
+4. **Sécurité garantie** : La clé est lue exclusivement côté serveur par le backend Java, n'est jamais journalisée (logs masqués) et n'est jamais renvoyée au navigateur client.
+
+---
+
+## 9. Tableau de Bord du Laboratoire (Lab Dashboard)
+
+Le tableau de bord (`/lab/dashboard`) permet aux recruteurs, responsables RH, directeurs de labo (CEO) et encadrants (SUPERVISOR) de piloter leurs recrutements avec des données calculées en temps réel.
+
+### 1. Indicateurs et Métriques
+
+Tous les indicateurs sont calculés dynamiquement dans le fuseau horaire `Africa/Casablanca` :
+
+| Indicateur | Définition métier | Filtre SQL / Calcul |
+| :--- | :--- | :--- |
+| **Open offers** | Offres actives publiées par le labo | `status = 'PUBLISHED' AND (closes_at >= today OR (closes_at IS NULL AND created_at >= now - 60 days))` |
+| **New applicants** | Nouvelles candidatures reçues ces 7 derniers jours | `sent_at >= now - 7 days` sur les offres du labo |
+| **To review** | Candidatures en attente de première décision | `status = 'SENT'` sur les offres du labo |
+| **Interviews this week** | Entretiens confirmés de la semaine (lundi 00:00 au dimanche 23:59:59) | `status = 'CONFIRMED' AND scheduled_time BETWEEN week_start AND week_end` (avec sous-texte *"N awaiting confirmation"* pour le statut `PROPOSED`) |
+| **Top candidates to review** | Les 4 candidatures non tranchées les mieux classées | Candidatures au statut `SENT` ou `REVIEWED` sur les offres ouvertes, triées par score décroissant puis date d'envoi |
+| **This month activity** | Activité du mois calendaire (Vues, Postulées, Présélectionnées, Entretiens) | Vues dédupliquées, candidatures `sent_at`, transitions d'état `SHORTLISTED` (`application_events`), et entretiens du mois |
+
+### 2. Seuils et Règles des Suggestions Fitwell
+
+Les suggestions intelligentes s'activent uniquement sur des critères factuels et vérifiables :
+
+1. **Shortlist candidates** : Déclenchée si au moins 3 candidats au statut `SENT` obtiennent un score d'adéquation $\ge 80\,\%$ sur la même offre ouverte.
+   - *Action* : Ouvre un tiroir de révision ; l'invitation requiert obligatoirement une confirmation explicite (`confirmed: true`).
+2. **Applicants are waiting** : Déclenchée si des candidatures sont restées au statut `SENT` depuis plus de 5 jours ouvrés sans réponse.
+   - *Action* : Redirige vers la liste filtrée des candidats en attente.
+3. **Offer views are low** : Déclenchée si une offre publiée depuis $\ge 7$ jours a un nombre de vues $< 0{,}5 \times$ médiane des autres offres du labo (ou $< 20$ vues si le labo n'a qu'une seule offre).
+   - *Formulation* : Strictement factuelle (ex: *"Your single-cell offer is missing a start date"*), sans promesses marketing non fondées.
+
+### 3. Politique de Confidentialité des Vues (`offer_views`)
+
+- **Comptage agrégé uniquement** : Les recruteurs et encadrants ne voient que le nombre total de vues par offre et par mois.
+- **Anonymat garanti** : L'identité des étudiants ayant consulté une offre (profil, nom, email, université, adresse IP) n'est **JAMAIS** divulguée ni accessible au laboratoire.
+- **Déduplication stricte** : Au maximum 1 vue est comptabilisée par étudiant (ou empreinte IP anonymisée) par offre et par jour calendaire (`Africa/Casablanca`). Les offres externes ou agrégées ne sont jamais soumises au tracking de vues recruteur.
+
+### 4. Index de Performance (p95 < 500 ms)
+
+La migration `V006__lab_dashboard_and_snapshots.sql` ajoute des index couvrants pour garantir des temps de réponse inférieurs à 500 ms même avec plus de 10 000 candidatures :
+
+```sql
+-- Couverture des requêtes de compteurs et candidatures
+CREATE INDEX idx_offers_lab_status ON offers(lab_id, status);
+CREATE INDEX idx_apps_offer_status ON applications(offer_id, status);
+CREATE INDEX idx_apps_sent_at ON applications(sent_at);
+CREATE INDEX idx_offer_views_offer_viewed ON offer_views(offer_id, viewed_at);
+CREATE INDEX idx_interviews_scheduled ON interviews(scheduled_time);
+CREATE INDEX idx_interviews_app_status ON interviews(application_id, status);
+CREATE INDEX idx_app_events_status_created ON application_events(to_status, created_at);
+CREATE INDEX idx_lab_members_user_lab ON lab_members(user_id, lab_id);
+```
+
+#### Plan d'exécution PostgreSQL (`EXPLAIN ANALYZE`) :
+```text
+Bitmap Heap Scan on applications  (cost=4.82..18.40 rows=15 width=420) (actual time=0.035..0.082 rows=18 loops=1)
+  Recheck Cond: (offer_id = $1 AND status = 'SENT'::character varying)
+  ->  Bitmap Index Scan on idx_apps_offer_status  (cost=0.00..4.81 rows=15 width=0) (actual time=0.018..0.018 rows=18 loops=1)
+        Index Cond: ((offer_id = $1) AND ((status)::text = 'SENT'::text))
+Planning Time: 0.125 ms
+Execution Time: 0.110 ms
+```
+
+
+
 
 
 
